@@ -90,6 +90,57 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
             [(100, 101), (200, 201), (300, 301)],
         )
 
+    def test_missing_and_present_session_guids_sort_common_objects(self):
+        prev = {
+            "source": "before.a7s",
+            "sessions": [
+                {"id": 7, "player_buildings": [building(2, 200)]},
+                {"guid": 110934, "id": 6, "player_buildings": [building(1, 100)]},
+            ],
+        }
+        curr = {
+            "source": "after.a7s",
+            "sessions": [
+                {"id": 7, "player_buildings": [building(2, 201)]},
+                {"guid": 110934, "id": 6, "player_buildings": [building(1, 101)]},
+            ],
+        }
+
+        diff = probe.diff_states(prev, curr)
+
+        self.assertEqual(diff["guid_changed_count"], 2)
+        self.assertEqual(
+            [event["session_guid"] for event in diff["guid_changed"]],
+            [110934, None],
+        )
+
+    def test_missing_and_present_session_guids_sort_added_and_removed_objects(self):
+        prev = {
+            "source": "before.a7s",
+            "sessions": [
+                {"id": 7, "player_buildings": [building(2, 200)]},
+                {"guid": 110934, "id": 6, "player_buildings": [building(1, 100)]},
+            ],
+        }
+        curr = {
+            "source": "after.a7s",
+            "sessions": [
+                {"id": 7, "player_buildings": [building(4, 400)]},
+                {"guid": 110934, "id": 6, "player_buildings": [building(3, 300)]},
+            ],
+        }
+
+        diff = probe.diff_states(prev, curr)
+
+        self.assertEqual(
+            [event["session_guid"] for event in diff["added"]],
+            [110934, None],
+        )
+        self.assertEqual(
+            [event["session_guid"] for event in diff["removed"]],
+            [110934, None],
+        )
+
     def test_unchanged_guid_does_not_emit_event(self):
         prev = state("before.a7s", [building(1, 1010344)])
         curr = state("after.a7s", [building(1, 1010344)])
