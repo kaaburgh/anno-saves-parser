@@ -21,6 +21,14 @@ Turn a sequence of Anno 1800 `.a7s` saves into compact deterministic state and, 
 
 The implementation is currently a single dependency-free module, `anno_save_probe.py`. That is deliberate while format knowledge is still changing quickly; split it into packages only when boundaries become stable enough to reduce complexity rather than merely move functions between files.
 
+### Bounded FileDB session traversal
+
+The expanded top-level `data.bin` is the single temporary FileDB backing store for a save. `extract_sessions()` records each embedded GameSession `BinaryData` value as a bounded `(offset, length)` view into that file instead of copying the blob into a second temporary file. `parse_session()` reads the FileDB trailer/dictionaries relative to that bounded slice and maps only the session range with stdlib `mmap`, aligned to `mmap.ALLOCATIONGRANULARITY` so the same path works on Windows.
+
+Relevant tag and attribute numeric IDs are resolved once from each FileDB dictionary. The hot traversal then compares numeric IDs and materializes bytes only for attributes used by the parser's current canonical subset. Slice metadata and attribute lengths are bounds-checked; malformed dictionaries or negative attribute sizes fail explicitly rather than reading neighboring bytes from the parent file.
+
+This is a parser-internal performance representation only. It does not change canonical schema v1 or structural-diff semantics. Benchmark methodology and resource measurements are recorded in [performance.md](performance.md).
+
 ## Observed invariants used today
 
 - Modern saves observed during feasibility testing use an RDA `Resource File V2.2` outer container.
