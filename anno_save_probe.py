@@ -27,8 +27,10 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
+CANONICAL_SCHEMA = "anno-saves-parser/canonical-state"
+CANONICAL_SCHEMA_VERSION = 1
 RDA_MAGIC = b"Resource File V2.2"
 BBDOM_V3_MAGIC = bytes.fromhex("08000000fdffffff")
 PAD_BLOCK = 8
@@ -507,7 +509,7 @@ def extract_sessions(meta_data_bin: Path, session_dir: Path, progress: Optional[
 
 
 def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
-    """Canonicalize area ownership and object/building state from one GameSession blob."""
+    """Extract area ownership and object/building state from one GameSession blob."""
     tags_off, _, tags, attrs = bb_meta(path)
     stack: list[str] = []
     area_infos: list[dict] = []
@@ -630,6 +632,81 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
     }
 
 
+def _raw_session_sort_key(session: dict) -> tuple:
+    guid = session.get("guid")
+    session_id = session.get("id")
+    return (
+        guid is None,
+        guid if guid is not None else 0,
+        session_id is None,
+        session_id if session_id is not None else 0,
+        session.get("map") or "",
+    )
+
+
+def _canonical_building(obj: dict) -> dict:
+    building = {
+        "area_id": obj["area_id"],
+        "id": obj["id"],
+        "guid": obj["guid"],
+        "components": sorted(set(obj.get("components", []))),
+    }
+    for field in ("position", "direction", "rotation"):
+        if field in obj and obj[field] is not None:
+            value = obj[field]
+            building[field] = list(value) if field == "position" else value
+    return building
+
+
+def build_canonical_state(source_name: str, parsed_sessions: list[dict]) -> dict:
+    """Normalize parser-internal session dictionaries into canonical schema v1."""
+    sessions = []
+    for raw in sorted(parsed_sessions, key=_raw_session_sort_key):
+        session = {
+            "session_guid": raw.get("guid"),
+            "session_id": raw.get("id"),
+            "player_areas": [],
+            "buildings": [],
+        }
+        if raw.get("map") is not None:
+            session["map"] = raw["map"]
+
+        area_summaries = raw.get("areas", {})
+        for area_id in sorted(raw.get("player_area_ids", [])):
+            info = area_summaries.get(str(area_id), {})
+            area = {"area_id": area_id, "owner_id": 0}
+            if info.get("city_name_guid") is not None:
+                area["city_name_guid"] = info["city_name_guid"]
+            if info.get("city_name_iterator") is not None:
+                area["city_name_iterator"] = info["city_name_iterator"]
+            session["player_areas"].append(area)
+
+        buildings = [_canonical_building(obj) for obj in raw.get("player_buildings", [])]
+        session["buildings"] = sorted(
+            buildings,
+            key=lambda obj: (obj["area_id"], obj["id"], obj["guid"]),
+        )
+        sessions.append(session)
+
+    return {
+        "schema": CANONICAL_SCHEMA,
+        "schema_version": CANONICAL_SCHEMA_VERSION,
+        "source": {"save_name": source_name},
+        "sessions": sessions,
+    }
+
+
+def _require_canonical_v1(state: dict) -> None:
+    if (
+        state.get("schema") != CANONICAL_SCHEMA
+        or state.get("schema_version") != CANONICAL_SCHEMA_VERSION
+    ):
+        raise ValueError(
+            "structural diff requires canonical state schema "
+            f"{CANONICAL_SCHEMA!r} version {CANONICAL_SCHEMA_VERSION}"
+        )
+
+
 def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] = None) -> dict:
     if progress is not None:
         progress.say(f"  [rda] reading archive directory ({save.stat().st_size / 1048576:.2f} MiB)")
@@ -661,7 +738,7 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
         total_mb = sum(d.get("binary_size", 0) for d in descriptors) / 1048576
         progress.say(f"  [sessions] found {len(descriptors)} session blobs ({total_mb:.1f} MiB total)")
 
-    sessions = []
+    parsed_sessions = []
     for session_index, d in enumerate(descriptors, 1):
         session_path = Path(d.pop("binary_path"))
         label_bits = []
@@ -678,7 +755,7 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
                 f"({session_path.stat().st_size / 1048576:.1f} MiB)"
             )
         parsed = parse_session(session_path, progress)
-        sessions.append({**d, **parsed})
+        parsed_sessions.append({**d, **parsed})
         if progress is not None:
             progress.say(
                 f"  [session {session_index}/{len(descriptors)}] done: "
@@ -686,17 +763,11 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
                 f"player_buildings={len(parsed['player_buildings']):,} "
                 f"game_objects={parsed['total_game_objects']:,}"
             )
-    return {
-        "source": save.name,
-        "source_size": save.stat().st_size,
-        "outer_entries": [{k: e[k] for k in ("name", "size", "compressed_size")} for e in outer],
-        "data_uncompressed_size": uncompressed,
-        "sessions": sessions,
-    }
+    return build_canonical_state(save.name, parsed_sessions)
 
 
 def building_key(session: dict, obj: dict) -> tuple:
-    return (session.get("guid"), obj["area_id"], obj["id"])
+    return (session.get("session_guid"), obj["area_id"], obj["id"])
 
 
 def building_key_sort(key: tuple) -> tuple:
@@ -711,16 +782,18 @@ def building_key_sort(key: tuple) -> tuple:
 
 
 def diff_states(prev: dict, curr: dict) -> dict:
+    _require_canonical_v1(prev)
+    _require_canonical_v1(curr)
     a, b = {}, {}
     for s in prev["sessions"]:
-        for o in s["player_buildings"]: a[building_key(s,o)] = (s,o)
+        for o in s["buildings"]: a[building_key(s,o)] = (s,o)
     for s in curr["sessions"]:
-        for o in s["player_buildings"]: b[building_key(s,o)] = (s,o)
+        for o in s["buildings"]: b[building_key(s,o)] = (s,o)
     added_keys = b.keys() - a.keys(); removed_keys = a.keys() - b.keys(); common = a.keys() & b.keys()
 
     def compact(pair):
         s,o=pair
-        return {"session_guid":s.get("guid"),"session_id":s.get("id"),"area_id":o["area_id"],
+        return {"session_guid":s.get("session_guid"),"session_id":s.get("session_id"),"area_id":o["area_id"],
                 "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
     added=[compact(b[k]) for k in sorted(added_keys, key=building_key_sort)]
     removed=[compact(a[k]) for k in sorted(removed_keys, key=building_key_sort)]
@@ -730,7 +803,7 @@ def diff_states(prev: dict, curr: dict) -> dict:
         if oa.get("guid") != ob.get("guid"):
             guid_changed.append({
                 "session_guid": k[0],
-                "session_id": sb.get("id"),
+                "session_id": sb.get("session_id"),
                 "area_id": k[1],
                 "id": k[2],
                 "from_guid": oa.get("guid"),
@@ -745,7 +818,7 @@ def diff_states(prev: dict, curr: dict) -> dict:
                             "from_components":oa.get("components",[]),"to_components":ob.get("components",[])})
     by_guid_add=Counter(x["guid"] for x in added); by_guid_remove=Counter(x["guid"] for x in removed)
     return {
-        "from":prev["source"],"to":curr["source"],
+        "from":prev["source"]["save_name"],"to":curr["source"]["save_name"],
         "added_count":len(added),"removed_count":len(removed),"moved_count":len(moved),"component_changed_count":len(changed),
         "guid_changed_count":len(guid_changed),
         "added_by_guid":{str(k):v for k,v in sorted(by_guid_add.items())},
@@ -755,16 +828,25 @@ def diff_states(prev: dict, curr: dict) -> dict:
 
 
 def strip_objects(state: dict) -> dict:
-    """Compact summary safe for a human-readable report."""
-    out={k:v for k,v in state.items() if k!="sessions"};out["sessions"]=[]
+    """Compact canonical v1 state for the batch summary without full object lists."""
+    _require_canonical_v1(state)
+    out = {
+        "schema": state["schema"],
+        "schema_version": state["schema_version"],
+        "source": dict(state["source"]),
+        "sessions": [],
+    }
     for s in state["sessions"]:
-        q={k:v for k,v in s.items() if k!="player_buildings"}
-        q["player_building_count"] = len(s["player_buildings"])
+        q = {
+            "session_guid": s.get("session_guid"),
+            "session_id": s.get("session_id"),
+            "player_areas": [dict(area) for area in s.get("player_areas", [])],
+            "building_count": len(s.get("buildings", [])),
+        }
+        if "map" in s:
+            q["map"] = s["map"]
         out["sessions"].append(q)
     return out
-
-
-
 
 
 def read_save_meta(save: Path) -> dict:
@@ -1035,7 +1117,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         progress.finish_parse(
             f"[parse {i}/{len(saves)}] done in {elapsed:.1f}s: "
             f"sessions={len(state['sessions'])} "
-            f"player_buildings={sum(len(s['player_buildings']) for s in state['sessions']):,}"
+            f"player_buildings={sum(len(s['buildings']) for s in state['sessions']):,}"
         )
 
     progress.say(f"[diff] comparing {max(len(states) - 1, 0)} adjacent save pair(s)")
