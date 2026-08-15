@@ -14,6 +14,15 @@ class TransformDecodingTests(unittest.TestCase):
         self.assertIsNone(probe._decode_position(struct.pack("<ii", 123, 988)))
         self.assertIsNone(probe._decode_position(b"\x00" * 16))
 
+    def test_position_rejects_non_finite_float32_values(self):
+        for values in (
+            (float("nan"), 1.0, 2.0),
+            (float("inf"), 1.0, 2.0),
+            (float("-inf"), 1.0, 2.0),
+        ):
+            with self.subTest(values=values):
+                self.assertIsNone(probe._decode_position(struct.pack("<fff", *values)))
+
     def test_direction_decodes_observed_float32(self):
         raw = struct.pack("<f", 1.5)
 
@@ -21,6 +30,11 @@ class TransformDecodingTests(unittest.TestCase):
 
     def test_direction_rejects_unobserved_sizes(self):
         self.assertIsNone(probe._decode_direction(b"\x00" * 8))
+
+    def test_direction_rejects_non_finite_float32_values(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                self.assertIsNone(probe._decode_direction(struct.pack("<f", value)))
 
 
 class MovementDiffTests(unittest.TestCase):
