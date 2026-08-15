@@ -36,7 +36,7 @@ class CliContractTests(unittest.TestCase):
             self.assertIn(option, help_text)
 
     def test_version_is_exposed(self):
-        self.assertEqual(probe.__version__, "0.2.0")
+        self.assertEqual(probe.__version__, "0.2.1")
 
 
 class SelectionTests(unittest.TestCase):
@@ -72,6 +72,11 @@ class SelectionTests(unittest.TestCase):
             self.assertEqual([p.name for p in found], ["Autosave 711.a7s", "Autosave 712.a7s", "Autosave 713.a7s"])
 
 
+class FakeTTY(io.StringIO):
+    def isatty(self):
+        return True
+
+
 class ProgressTests(unittest.TestCase):
     def test_say_flushes_immediately(self):
         stream = io.StringIO()
@@ -91,6 +96,72 @@ class ProgressTests(unittest.TestCase):
         text = stream.getvalue()
         self.assertNotIn("too soon", text)
         self.assertIn("heartbeat", text)
+
+    def test_interactive_parse_rewrites_one_live_detail_line(self):
+        stream = FakeTTY()
+        progress = probe.Progress(stream=stream, terminal_width=120)
+
+        progress.begin_parse("[parse 6/55] Autosave 669.a7s")
+        progress.say("  [rda] reading archive directory (10.28 MiB)")
+        progress.say("  [data] ready: 267.4 MiB FileDB state")
+        progress.finish_parse(
+            "[parse 6/55] done in 6.3s: sessions=5 player_buildings=36,030"
+        )
+
+        text = stream.getvalue()
+        self.assertTrue(text.startswith("[parse 6/55] Autosave 669.a7s\n"))
+        self.assertIn(
+            probe.Progress.CLEAR_LINE + "  [rda] reading archive directory (10.28 MiB)",
+            text,
+        )
+        self.assertIn(
+            probe.Progress.CLEAR_LINE + "  [data] ready: 267.4 MiB FileDB state",
+            text,
+        )
+        self.assertNotIn("\n  [rda]", text)
+        self.assertNotIn("\n  [data]", text)
+        self.assertTrue(
+            text.endswith(
+                probe.Progress.CLEAR_LINE
+                + probe.Progress.CURSOR_UP
+                + probe.Progress.CLEAR_LINE
+                + "[parse 6/55] done in 6.3s: sessions=5 player_buildings=36,030\n"
+            )
+        )
+
+    def test_non_tty_parse_remains_line_oriented_without_ansi(self):
+        stream = io.StringIO()
+        progress = probe.Progress(stream=stream, interactive=False)
+
+        progress.begin_parse("[parse 1/2] Autosave 711.a7s")
+        progress.say("  [data] reading + decompressing data.a7s")
+        progress.finish_parse("[parse 1/2] done in 5.6s: sessions=5 player_buildings=37,570")
+
+        text = stream.getvalue()
+        self.assertNotIn("\x1b", text)
+        self.assertEqual(
+            text.splitlines(),
+            [
+                "[parse 1/2] Autosave 711.a7s",
+                "  [data] reading + decompressing data.a7s",
+                "[parse 1/2] done in 5.6s: sessions=5 player_buildings=37,570",
+            ],
+        )
+
+    def test_interactive_live_lines_are_truncated_before_terminal_wrap(self):
+        stream = FakeTTY()
+        progress = probe.Progress(stream=stream, terminal_width=20)
+
+        progress.begin_parse("[parse 1/2] Autosave 711.a7s")
+        progress.say("  [session] map=data/a/very/long/path.a7t")
+
+        writes = stream.getvalue().split(probe.Progress.CLEAR_LINE)
+        header = writes[0].rstrip("\n")
+        live_detail = writes[-1]
+        self.assertLessEqual(len(header), 19)
+        self.assertLessEqual(len(live_detail), 19)
+        self.assertTrue(header.endswith("…"))
+        self.assertTrue(live_detail.endswith("…"))
 
 
 if __name__ == "__main__":
