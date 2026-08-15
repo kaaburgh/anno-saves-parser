@@ -124,6 +124,63 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
             [123456, None],
         )
 
+    def test_null_guid_sessions_with_reused_object_ids_do_not_overwrite_each_other(self):
+        prev = {
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "before.a7s"},
+            "sessions": [
+                {"session_guid": None, "session_id": 1, "player_areas": [], "buildings": [building(5, 100)]},
+                {"session_guid": None, "session_id": 2, "player_areas": [], "buildings": [building(5, 200)]},
+            ],
+        }
+        curr = {
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "after.a7s"},
+            "sessions": [
+                {"session_guid": None, "session_id": 1, "player_areas": [], "buildings": [building(5, 101)]},
+                {"session_guid": None, "session_id": 2, "player_areas": [], "buildings": [building(5, 200)]},
+            ],
+        }
+
+        diff = probe.diff_states(prev, curr)
+
+        self.assertEqual(diff["added_count"], 0)
+        self.assertEqual(diff["removed_count"], 0)
+        self.assertEqual(diff["guid_changed_count"], 1)
+        self.assertEqual(diff["guid_changed"][0]["session_guid"], None)
+        self.assertEqual(diff["guid_changed"][0]["session_id"], 1)
+        self.assertEqual(diff["guid_changed"][0]["from_guid"], 100)
+        self.assertEqual(diff["guid_changed"][0]["to_guid"], 101)
+
+    def test_ambiguous_duplicate_session_identity_is_rejected(self):
+        ambiguous = {
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "ambiguous.a7s"},
+            "sessions": [
+                {"session_guid": None, "session_id": 1, "map": "same.a7t", "player_areas": [], "buildings": [building(1, 100)]},
+                {"session_guid": None, "session_id": 1, "map": "same.a7t", "player_areas": [], "buildings": [building(2, 200)]},
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "duplicate canonical session identity"):
+            probe.diff_states(ambiguous, ambiguous)
+
+    def test_session_without_any_diff_identity_is_rejected(self):
+        anonymous = {
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "anonymous.a7s"},
+            "sessions": [
+                {"session_guid": None, "session_id": None, "player_areas": [], "buildings": [building(1, 100)]},
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "cannot identify a session"):
+            probe.diff_states(anonymous, anonymous)
+
     def test_missing_and_present_session_guids_sort_added_and_removed_objects(self):
         prev = {
             "schema": probe.CANONICAL_SCHEMA,
