@@ -30,6 +30,7 @@ The implementation is currently a single dependency-free module, `anno_save_prob
 - `GameSessions` contains session-specific binary state.
 - Player-owned areas can be separated from AI-owned areas using ownership data observed in the save structure.
 - Many world objects expose stable object IDs plus GUIDs, which are useful canonical identity candidates.
+- Tested player-building objects expose transform attributes directly at the root object depth: `Position` is a 12-byte little-endian float32 triple and `Direction`, when present, is a 4-byte little-endian float32 value.
 
 These are observations from tested saves, not a guarantee that every game version or corrupted/modded save follows the same structure. Parser failures should be explicit rather than silently producing plausible-looking partial state.
 
@@ -49,6 +50,25 @@ The pre-schema-v1 structural diff treats `(session_guid, area_id, object id)` as
 Such transitions are emitted as raw `guid_changed` events with `from_guid` and `to_guid` plus the stable identity and current component set. They are deliberately not classified as upgrades, construction stages, or any other gameplay lifecycle event until the later provenance/semantic layers have evidence for that interpretation.
 
 A single stable object may emit a GUID mutation together with another independent structural event such as a component or movement change. Event lists derived from common stable keys are ordered deterministically by the stable object key.
+
+## Observed object transform encoding
+
+Direct inspection of private FileDB/BBDom v3 session data established the transform boundary used by `parse_session()`:
+
+```text
+.../AreaManager_N/AreaObjectManager/GameObject/objects/#1
+  ID
+  guid
+  Position   # 12 bytes, <fff>
+  Direction  # 4 bytes, <f>, optional
+  ...components...
+```
+
+`Position` is decoded only for the observed 12-byte representation and stored as the three float32 values promoted to Python floats. Unsupported sizes remain absent rather than being reinterpreted heuristically. `Direction` is likewise decoded only from the observed 4-byte float32 representation. The parser does not label the axes, infer map/grid units, or assign orientation semantics beyond preserving the decoded raw values.
+
+Coverage checks on private saves found `Position` on every canonical player-building object in the tested 686/687 pair and independently on every canonical player-building object in 711/712 across all five sessions. Consecutive 711→712 also contains a stable-ID warehouse object with exactly one changed `Position`, validating that the existing raw `moved` event can represent an observed transform change without manufacturing add/remove lifecycle noise.
+
+`Direction` is canonical object state but is not yet a dedicated structural-diff event. A later schema/semantic task may decide whether orientation changes need their own event type.
 
 ## Why five-minute autosaves are promising
 

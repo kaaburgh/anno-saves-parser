@@ -5,6 +5,9 @@
 - Expose stable-object asset GUID mutations in structural diffs as deterministic `guid_changed` events with previous/current GUIDs and stable identity.
 - Keep GUID changes semantic-neutral and orthogonal to additions/removals, movement, and component changes.
 - Add synthetic regression coverage for GUID-only mutations, deterministic ordering, unchanged GUIDs, and coexisting component changes.
+- Decode observed root-level player-building `Position` as a 12-byte little-endian float32 triple so canonical snapshots carry real transform data and existing `moved` diffs become observable.
+- Preserve observed root-level `Direction` as a 4-byte float32 value when present, without assigning orientation semantics.
+- Reject unsupported transform attribute sizes conservatively and add synthetic movement/decoding regression coverage.
 
 ## 0.2.1 — 2026-08-15
 
