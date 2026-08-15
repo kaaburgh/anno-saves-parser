@@ -37,6 +37,14 @@ class TerminalEdgeCaseTests(unittest.TestCase):
         self.assertNotIn("\t", fitted)
         self.assertLessEqual(probe.Progress._display_width(fitted), 19)
 
+    def test_live_lines_sanitize_terminal_control_characters(self):
+        progress = probe.Progress(stream=FakeTTY(), interactive=True, terminal_width=80)
+        fitted = progress._fit_live_line("save\x1b[2A\bname")
+
+        self.assertNotIn("\x1b", fitted)
+        self.assertNotIn("\b", fitted)
+        self.assertEqual(fitted, "save [2A name")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
