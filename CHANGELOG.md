@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.3.2 — 2026-08-15
+
+- Reduce the dominant serial FileDB traversal cost by resolving relevant numeric tag/attribute IDs once per blob and scanning bounded session data with stdlib `mmap`.
+- Stop copying embedded GameSession `BinaryData` into secondary temporary files; parse bounded offsets directly from the already-expanded `data.bin`.
+- Keep mmap ranges aligned for Windows allocation granularity and preserve zero third-party runtime dependencies.
+- Bound FileDB slice metadata/string reads and reject negative attribute sizes explicitly so corrupted slices cannot read into neighboring data.
+- Add fully synthetic bounded-slice, standalone-equivalence and malformed-input regression coverage.
+- Record representative local profiling methodology and before/after resource behavior in `docs/performance.md`.
+
 ## 0.3.1 — 2026-08-15
 
 - Always report total elapsed time for the adjacent structural-diff phase in batch CLI output.

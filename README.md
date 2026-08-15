@@ -119,4 +119,4 @@ python -m unittest discover -s tests -v
 
 No real Anno save files are committed to this repository. Unit tests use synthetic data/mocks; local `.a7s` files are ignored by Git.
 
-See [ROADMAP.md](ROADMAP.md) for planned work, [docs/architecture.md](docs/architecture.md) for the current data pipeline and boundaries, and [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md) for the normative canonical state contract.
+See [ROADMAP.md](ROADMAP.md) for planned work, [docs/architecture.md](docs/architecture.md) for the current data pipeline and boundaries, [docs/performance.md](docs/performance.md) for parser profiling methodology and optimization results, and [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md) for the normative canonical state contract.
