@@ -39,6 +39,7 @@ PAD_BLOCK = 8
 AREA_RE = re.compile(r"^AreaManager_(\d+)$")
 PARALLEL_RAM_ESTIMATE_BYTES = 384 * 1024 * 1024
 PARALLEL_TEMP_ESTIMATE_BYTES = 320 * 1024 * 1024
+WINDOWS_PROCESS_WORKER_LIMIT = 61
 
 INTERESTING_COMPONENTS = {
     "Building", "Residence7", "Factory7", "BuildingModule", "Warehouse",
@@ -1386,12 +1387,18 @@ def _positive_worker_count(value: str) -> int:
 
 
 def resolve_worker_count(requested: int, save_count: int) -> int:
-    """Resolve explicit concurrency without creating idle parser processes."""
+    """Resolve explicit concurrency and enforce hard platform executor limits."""
     if requested <= 0:
         raise ValueError("worker count must be greater than zero")
     if save_count <= 0:
         return 1
-    return min(requested, save_count)
+    active = min(requested, save_count)
+    if os.name == "nt" and active > WINDOWS_PROCESS_WORKER_LIMIT:
+        raise ValueError(
+            f"--workers resolves to {active} active workers, but Windows "
+            f"ProcessPoolExecutor supports at most {WINDOWS_PROCESS_WORKER_LIMIT}"
+        )
+    return active
 
 
 def _available_memory_bytes() -> Optional[int]:
@@ -1712,7 +1719,10 @@ def main(argv: Optional[list[str]] = None) -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     progress.say(f"[input] selected {len(saves)} save(s); {saves[0].name} -> {saves[-1].name}")
     progress.say(f"[output] {args.output.resolve()}")
-    active_workers = resolve_worker_count(args.workers, len(saves))
+    try:
+        active_workers = resolve_worker_count(args.workers, len(saves))
+    except ValueError as exc:
+        ap.error(str(exc))
     report_worker_plan(args.workers, active_workers, progress)
     states = parse_saves_batch(saves, args.output, progress, active_workers)
 
