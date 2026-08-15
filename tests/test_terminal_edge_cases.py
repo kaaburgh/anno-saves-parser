@@ -1,4 +1,5 @@
 import io
+import os
 import unittest
 from unittest.mock import patch
 
@@ -44,6 +45,19 @@ class TerminalEdgeCaseTests(unittest.TestCase):
         self.assertNotIn("\x1b", fitted)
         self.assertNotIn("\b", fitted)
         self.assertEqual(fitted, "save [2A name")
+
+    def test_finish_parse_accounts_for_header_reflow_after_resize(self):
+        stream = FakeTTY()
+        sizes = [os.terminal_size((40, 24)), os.terminal_size((20, 24))]
+        progress = probe.Progress(stream=stream, interactive=True)
+
+        with patch.object(probe.shutil, "get_terminal_size", side_effect=sizes):
+            progress.begin_parse("[parse 1/1] Autosave 1234567890.a7s")
+            progress.finish_parse("[parse 1/1] done")
+
+        text = stream.getvalue()
+        self.assertEqual(text.count(probe.Progress.CURSOR_UP), 2)
+        self.assertTrue(text.endswith("[parse 1/1] done\n"))
 
 
 if __name__ == "__main__":
