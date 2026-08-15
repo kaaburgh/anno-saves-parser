@@ -782,29 +782,63 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
     return build_canonical_state(save.name, parsed_sessions)
 
 
+def session_diff_identity(session: dict) -> tuple:
+    """Return a safe session identity for structural diff indexing."""
+    guid = session.get("session_guid")
+    if guid is not None:
+        return (0, guid, False, 0, "")
+
+    session_id = session.get("session_id")
+    session_map = session.get("map") or ""
+    if session_id is None and not session_map:
+        raise ValueError(
+            "structural diff cannot identify a session with no SessionGUID, "
+            "SessionID, or map"
+        )
+    return (
+        1,
+        0,
+        session_id is None,
+        session_id if session_id is not None else 0,
+        session_map,
+    )
+
+
 def building_key(session: dict, obj: dict) -> tuple:
-    return (session.get("session_guid"), obj["area_id"], obj["id"])
+    return (session_diff_identity(session), obj["area_id"], obj["id"])
 
 
 def building_key_sort(key: tuple) -> tuple:
-    """Sort stable object keys even when an observed session has no SessionGUID."""
-    session_guid, area_id, object_id = key
-    return (
-        session_guid is None,
-        session_guid if session_guid is not None else 0,
-        area_id,
-        object_id,
-    )
+    """Sort stable object keys without comparing nullable session fields directly."""
+    session_identity, area_id, object_id = key
+    return (*session_identity, area_id, object_id)
+
+
+def _index_state_buildings(state: dict) -> dict:
+    indexed = {}
+    seen_sessions = set()
+    for session in state["sessions"]:
+        session_identity = session_diff_identity(session)
+        if session_identity in seen_sessions:
+            raise ValueError(
+                "structural diff cannot disambiguate duplicate canonical session identity"
+            )
+        seen_sessions.add(session_identity)
+        for obj in session["buildings"]:
+            key = (session_identity, obj["area_id"], obj["id"])
+            if key in indexed:
+                raise ValueError(
+                    "structural diff found duplicate building identity within a session"
+                )
+            indexed[key] = (session, obj)
+    return indexed
 
 
 def diff_states(prev: dict, curr: dict) -> dict:
     _require_canonical_v1(prev)
     _require_canonical_v1(curr)
-    a, b = {}, {}
-    for s in prev["sessions"]:
-        for o in s["buildings"]: a[building_key(s,o)] = (s,o)
-    for s in curr["sessions"]:
-        for o in s["buildings"]: b[building_key(s,o)] = (s,o)
+    a = _index_state_buildings(prev)
+    b = _index_state_buildings(curr)
     added_keys = b.keys() - a.keys(); removed_keys = a.keys() - b.keys(); common = a.keys() & b.keys()
 
     def compact(pair):
@@ -818,19 +852,19 @@ def diff_states(prev: dict, curr: dict) -> dict:
         sa, oa = a[k]; sb, ob = b[k]
         if oa.get("guid") != ob.get("guid"):
             guid_changed.append({
-                "session_guid": k[0],
+                "session_guid": sb.get("session_guid"),
                 "session_id": sb.get("session_id"),
-                "area_id": k[1],
-                "id": k[2],
+                "area_id": ob["area_id"],
+                "id": ob["id"],
                 "from_guid": oa.get("guid"),
                 "to_guid": ob.get("guid"),
                 "components": ob.get("components", []),
             })
         if oa.get("position") != ob.get("position"):
-            moved.append({"session_guid":k[0],"area_id":k[1],"id":k[2],"guid":ob["guid"],
+            moved.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
                           "from":oa.get("position"),"to":ob.get("position"),"components":ob.get("components",[])})
         if oa.get("components") != ob.get("components"):
-            changed.append({"session_guid":k[0],"area_id":k[1],"id":k[2],"guid":ob["guid"],
+            changed.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
                             "from_components":oa.get("components",[]),"to_components":ob.get("components",[])})
     by_guid_add=Counter(x["guid"] for x in added); by_guid_remove=Counter(x["guid"] for x in removed)
     return {
