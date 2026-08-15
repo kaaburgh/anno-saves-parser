@@ -130,6 +130,23 @@ class ParallelBatchTests(unittest.TestCase):
     def setUp(self):
         FakeExecutor.instances.clear()
 
+    def test_colliding_canonical_output_names_are_rejected_before_scheduling(self):
+        saves = [Path("left/A B.a7s"), Path("right/A_B.a7s")]
+        progress = RecordingProgress()
+
+        with tempfile.TemporaryDirectory() as td, patch.object(
+            probe, "parse_saves_parallel"
+        ) as parallel:
+            with self.assertRaisesRegex(ValueError, "same canonical output filename"):
+                probe.parse_saves_batch(saves, Path(td), progress, workers=2)
+
+        parallel.assert_not_called()
+
+    def test_duplicate_basenames_from_different_directories_are_rejected(self):
+        saves = [Path("left/Autosave.a7s"), Path("right/Autosave.a7s")]
+        with self.assertRaisesRegex(ValueError, "same canonical output filename"):
+            probe.validate_canonical_output_names(saves)
+
     def test_parallel_completion_order_does_not_reorder_states_or_files(self):
         saves = [Path(f"Autosave {n}.a7s") for n in (1, 2, 3)]
         progress = RecordingProgress()
