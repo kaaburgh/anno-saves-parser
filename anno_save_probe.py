@@ -314,6 +314,20 @@ def _padded(n: int) -> int:
     return ((n + PAD_BLOCK - 1) // PAD_BLOCK) * PAD_BLOCK
 
 
+def _decode_position(raw: bytes) -> Optional[list[float]]:
+    """Decode the observed root GameObject Position encoding conservatively."""
+    if len(raw) != 12:
+        return None
+    return list(struct.unpack("<fff", raw))
+
+
+def _decode_direction(raw: bytes) -> Optional[float]:
+    """Decode the observed root GameObject Direction encoding conservatively."""
+    if len(raw) != 4:
+        return None
+    return struct.unpack("<f", raw)[0]
+
+
 def rda_entries(path: Path) -> list[dict]:
     """Read RDA v2.2 directory entries without extracting the whole archive."""
     entries: list[dict] = []
@@ -558,8 +572,14 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
             if current_object is not None and len(stack) == object_depth:
                 if name == "ID": current_object["id"] = int.from_bytes(raw, "little", signed=False)
                 elif name == "guid": current_object["guid"] = _u32(raw)
-                elif name == "Position" and len(raw) == 8:
-                    current_object["position"] = list(struct.unpack("<ii", raw))
+                elif name == "Position":
+                    decoded = _decode_position(raw)
+                    if decoded is not None:
+                        current_object["position"] = decoded
+                elif name == "Direction":
+                    decoded = _decode_direction(raw)
+                    if decoded is not None:
+                        current_object["direction"] = decoded
                 elif name in ("Rotation90", "Rotation") and len(raw) <= 4:
                     current_object["rotation"] = _u32(raw)
 
