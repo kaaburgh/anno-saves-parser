@@ -114,13 +114,9 @@ Each canonical building object contains:
 
 Buildings are sorted by `(area_id, id, guid)` within a session.
 
-The stable comparison identity used by the current raw structural diff is:
+For the current raw structural diff, a session with an observed `session_guid` is identified by that GUID. If the GUID is absent, the diff falls back to the observed `session_id` together with `map`. A session lacking all usable identity fields, or duplicate sessions resolving to the same fallback identity, is rejected explicitly because comparing its objects safely would otherwise be ambiguous. Within the resolved session identity, the stable object comparison key is `(area_id, id)`.
 
-```text
-(session_guid, area_id, id)
-```
-
-A GUID change at a stable identity is therefore state mutation rather than automatic remove/add lifecycle noise.
+A GUID change at a stable session/object identity is therefore state mutation rather than automatic remove/add lifecycle noise.
 
 The parser does not assign axis names, map/grid units, orientation semantics, upgrade semantics, or human-readable GUID names in schema v1.
 
@@ -128,7 +124,7 @@ The parser does not assign axis names, map/grid units, orientation semantics, up
 
 Optional fields are emitted only when the parser has decoded an observed supported representation. Missing or unsupported values are omitted rather than filled with plausible defaults. For float transform fields, IEEE-754 `NaN` and positive/negative infinity are treated as unsupported and omitted before canonical export; canonical v1 therefore exposes only finite `position` / `direction` numbers.
 
-`session_guid` and `session_id` are exceptions: their keys are always present and use JSON `null` when the corresponding observed session descriptor value is absent. Keeping those identity slots explicit makes session comparison rules unambiguous.
+`session_guid` and `session_id` are exceptions: their keys are always present and use JSON `null` when the corresponding observed session descriptor value is absent. Keeping those identity slots explicit makes session comparison rules unambiguous, even though a state can remain canonical while lacking enough session identity for the separate raw-diff operation to compare it safely.
 
 ## Determinism
 
@@ -169,7 +165,7 @@ Additive optional fields that preserve all existing v1 meanings may remain schem
 
 ## Structural diffs
 
-The current raw structural diff consumes canonical v1 states and emits additions, removals, position changes, component changes, and GUID changes. That diff format is a separate pre-semantic interface; this document does not declare a semantic-diff schema.
+The current raw structural diff consumes canonical v1 states and emits additions, removals, position changes, component changes, and GUID changes. Its session fallback/rejection rules are described above. That diff format is a separate pre-semantic interface; this document does not declare a semantic-diff schema.
 
 ## `summary.json` is not a canonical state
 

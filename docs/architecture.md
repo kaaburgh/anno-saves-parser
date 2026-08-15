@@ -64,11 +64,13 @@ Canonical determinism refers to the JSON data model and ordering, not byte-for-b
 
 ## Structural diff identity and GUID mutations
 
-The raw structural diff consumes canonical v1 states and treats `(session_guid, area_id, object id)` as the stable comparison key for player-building objects. An asset `guid` is object state, not part of that stable key: observed real-save sequences contain objects that retain the same stable identity while their GUID changes.
+The raw structural diff consumes canonical v1 states. For session identity it prefers an observed `session_guid`. When `session_guid` is absent, it uses the observed `session_id` together with `map` as a conservative fallback. A session with none of those usable identifiers, or duplicate sessions that resolve to the same fallback identity, is rejected explicitly rather than allowing object dictionaries to overwrite one another silently.
+
+Within an identified session, a player-building object's stable comparison key is `(area_id, object id)`. An asset `guid` is object state, not part of that stable object key: observed real-save sequences contain objects that retain the same stable identity while their GUID changes.
 
 Such transitions are emitted as raw `guid_changed` events with `from_guid` and `to_guid` plus the stable identity and current component set. They are deliberately not classified as upgrades, construction stages, or any other gameplay lifecycle event until the later provenance/semantic layers have evidence for that interpretation.
 
-A single stable object may emit a GUID mutation together with another independent structural event such as a component or movement change. Event lists derived from common stable keys are ordered deterministically by the stable object key.
+A single stable object may emit a GUID mutation together with another independent structural event such as a component or movement change. Event lists derived from common stable keys are ordered deterministically by the normalized session identity plus area/object IDs.
 
 The structural-diff output is not declared as the canonical-state schema and does not yet have a semantic-diff contract of its own.
 
