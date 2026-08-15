@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.1 — 2026-08-15
+
+- Always report total elapsed time for the adjacent structural-diff phase in batch CLI output.
+- Add opt-in `--timings` output with one elapsed-time line per adjacent save pair.
+- Keep runtime timing metadata out of canonical state files and deterministic `summary.json` output.
+
 ## 0.3.0 — 2026-08-15
 
 - Define canonical state schema v1 (`anno-saves-parser/canonical-state`, version `1`) as the stable downstream boundary for per-save `.canonical.json.gz` output.

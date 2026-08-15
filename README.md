@@ -16,6 +16,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - extract session/player-area building objects into compressed canonical JSON using explicit schema v1;
 - preserve stable object identity, GUID/components, and observed transform state while excluding parser/container diagnostics from the canonical contract;
 - compare consecutive canonical v1 snapshots;
+- always report total structural-diff elapsed time, with optional `--timings` output for each adjacent save pair;
 - emit immediate progress plus ~1-second heartbeats during long operations;
 - keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, CI, and terminals without usable cursor-control support.
 
@@ -57,6 +58,12 @@ Process only the first three selected saves:
 python .\anno_save_probe.py "C:\...\<profile>" --from "Autosave 711" --limit 3 -o 711_l3\
 ```
 
+Show per-adjacent-pair structural diff timings as well as the always-on total diff time:
+
+```powershell
+python .\anno_save_probe.py "C:\...\<profile>" --from "Autosave 711" --limit 10 --timings -o timing_probe\
+```
+
 Check the exact CLI version:
 
 ```powershell
@@ -87,6 +94,15 @@ Each `*.canonical.json.gz` contains the normative schema markers:
 ```
 
 `summary.json` is **not** another canonical state file. It contains compact per-save projections and diffs plus a top-level `canonical_schema` reference; full building arrays remain only in the corresponding compressed canonical files. See [the v1 schema contract](docs/canonical-schema-v1.md) for field, ordering, optionality, and compatibility rules.
+
+Structural-diff timing is CLI execution metadata only. Every batch reports the phase start and total elapsed time, for example:
+
+```text
+[diff] comparing 9 adjacent save pair(s)
+[diff] done in 0.8s: 9 pair(s)
+```
+
+With `--timings`, the CLI additionally prints one elapsed-time line per adjacent pair. Timing values are deliberately **not** stored in `summary.json` or canonical state files, so deterministic analysis artifacts are unchanged by machine speed or runtime conditions.
 
 The parser is read-only with respect to the source save directory.
 
