@@ -15,7 +15,8 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - parse RDA → zlib → FileDB v3 without external executables or Python packages;
 - extract session/player-area building objects into compressed canonical JSON;
 - compare consecutive canonical snapshots;
-- emit immediate progress plus ~1-second heartbeats during long operations.
+- emit immediate progress plus ~1-second heartbeats during long operations;
+- keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, and CI.
 
 The canonical model is intentionally incomplete. Population, workforce, inventory, production/demand, trade routes, GUID naming, and semantic episode reconstruction belong to follow-up work.
 
@@ -74,6 +75,8 @@ output/
 ```
 
 The parser is read-only with respect to the source save directory.
+
+When stdout is attached to an interactive terminal, each completed save leaves one permanent `[parse N/M] done ...` line. The currently parsed save uses one header plus one in-place live detail line. When stdout is redirected or captured, progress remains normal newline-delimited text with no cursor-control sequences.
 
 ## Development
 
