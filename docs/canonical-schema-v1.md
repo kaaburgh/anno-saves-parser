@@ -165,7 +165,7 @@ Additive optional fields that preserve all existing v1 meanings may remain schem
 
 ## Structural diffs
 
-The current raw structural diff consumes canonical v1 states and emits additions, removals, position changes, component changes, and GUID changes. Its session fallback/rejection rules are described above. That diff format is a separate pre-semantic interface; this document does not declare a semantic-diff schema.
+The current raw structural diff consumes canonical v1 states and emits additions, removals, position changes, Direction changes, component changes, and GUID changes. Its session fallback/rejection rules are described above. That diff format is a separate pre-semantic interface; this document does not declare a semantic-diff schema.
 
 ## `summary.json` is not a canonical state
 
