@@ -103,31 +103,32 @@ class ProgressTests(unittest.TestCase):
 
         progress.begin_parse("[parse 6/55] Autosave 669.a7s")
         progress.say("  [rda] reading archive directory (10.28 MiB)")
+        self.assertEqual(
+            progress._rendered_detail,
+            "  [rda] reading archive directory (10.28 MiB)",
+        )
         progress.say("  [data] ready: 267.4 MiB FileDB state")
+        self.assertEqual(
+            progress._rendered_detail,
+            "  [data] ready: 267.4 MiB FileDB state",
+        )
         progress.finish_parse(
             "[parse 6/55] done in 6.3s: sessions=5 player_buildings=36,030"
         )
 
         text = stream.getvalue()
         self.assertTrue(text.startswith("[parse 6/55] Autosave 669.a7s\n"))
-        self.assertIn(
-            probe.Progress.CLEAR_LINE + "  [rda] reading archive directory (10.28 MiB)",
-            text,
-        )
-        self.assertIn(
-            probe.Progress.CLEAR_LINE + "  [data] ready: 267.4 MiB FileDB state",
-            text,
-        )
-        self.assertNotIn("\n  [rda]", text)
-        self.assertNotIn("\n  [data]", text)
+        self.assertIn("  [rda] reading archive directory (10.28 MiB)", text)
+        self.assertIn("  [data] ready: 267.4 MiB FileDB state", text)
+        self.assertIn(probe.Progress.CLEAR_LINE, text)
+        self.assertIn(probe.Progress.CURSOR_UP, text)
         self.assertTrue(
             text.endswith(
-                probe.Progress.CLEAR_LINE
-                + probe.Progress.CURSOR_UP
-                + probe.Progress.CLEAR_LINE
-                + "[parse 6/55] done in 6.3s: sessions=5 player_buildings=36,030\n"
+                "[parse 6/55] done in 6.3s: sessions=5 player_buildings=36,030\n"
             )
         )
+        self.assertFalse(progress._parse_active)
+        self.assertEqual(progress._rendered_detail, "")
 
     def test_non_tty_parse_remains_line_oriented_without_ansi(self):
         stream = io.StringIO()
@@ -155,13 +156,10 @@ class ProgressTests(unittest.TestCase):
         progress.begin_parse("[parse 1/2] Autosave 711.a7s")
         progress.say("  [session] map=data/a/very/long/path.a7t")
 
-        writes = stream.getvalue().split(probe.Progress.CLEAR_LINE)
-        header = writes[0].rstrip("\n")
-        live_detail = writes[-1]
-        self.assertLessEqual(probe.Progress._display_width(header), 19)
-        self.assertLessEqual(probe.Progress._display_width(live_detail), 19)
-        self.assertTrue(header.endswith("..."))
-        self.assertTrue(live_detail.endswith("..."))
+        self.assertLessEqual(probe.Progress._display_width(progress._rendered_header), 19)
+        self.assertLessEqual(probe.Progress._display_width(progress._rendered_detail), 19)
+        self.assertTrue(progress._rendered_header.endswith("..."))
+        self.assertTrue(progress._rendered_detail.endswith("..."))
 
     def test_wide_characters_are_truncated_by_terminal_cells(self):
         stream = FakeTTY()
@@ -170,9 +168,8 @@ class ProgressTests(unittest.TestCase):
         progress.begin_parse("[p]")
         progress.say("界界界界界")
 
-        live_detail = stream.getvalue().split(probe.Progress.CLEAR_LINE)[-1]
-        self.assertLessEqual(probe.Progress._display_width(live_detail), 9)
-        self.assertTrue(live_detail.endswith("..."))
+        self.assertLessEqual(probe.Progress._display_width(progress._rendered_detail), 9)
+        self.assertTrue(progress._rendered_detail.endswith("..."))
 
     def test_posix_dumb_terminal_falls_back_to_line_logging(self):
         stream = FakeTTY()
@@ -202,9 +199,8 @@ class ProgressTests(unittest.TestCase):
         progress.begin_parse("[p]")
         progress.say("©️©️©️©️©️")
 
-        live_detail = stream.getvalue().split(probe.Progress.CLEAR_LINE)[-1]
-        self.assertLessEqual(probe.Progress._display_width(live_detail), 9)
-        self.assertTrue(live_detail.endswith("..."))
+        self.assertLessEqual(probe.Progress._display_width(progress._rendered_detail), 9)
+        self.assertTrue(progress._rendered_detail.endswith("..."))
 
     def test_tty_without_in_place_support_falls_back_to_line_logging(self):
         stream = FakeTTY()
