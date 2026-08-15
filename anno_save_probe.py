@@ -72,7 +72,10 @@ def _enable_windows_vt(stream) -> bool:
 def _supports_in_place_rendering(stream) -> bool:
     if not bool(getattr(stream, "isatty", lambda: False)()):
         return False
-    return _enable_windows_vt(stream)
+    if os.name == "nt":
+        return _enable_windows_vt(stream)
+    term = os.environ.get("TERM", "").strip().casefold()
+    return term not in {"dumb", "unknown"}
 
 
 class Progress:
@@ -106,11 +109,47 @@ class Progress:
         category = unicodedata.category(char)
         if category.startswith("C") or unicodedata.combining(char):
             return 0
-        return 2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1
+        if ord(char) < 128:
+            return 1
+        # Be conservative for non-ASCII glyphs: terminals disagree on ambiguous
+        # width, and over-counting only truncates earlier while under-counting
+        # can make the live line wrap and corrupt cursor accounting.
+        return 2
+
+    @classmethod
+    def _display_clusters(cls, text: str) -> list[tuple[str, int]]:
+        clusters: list[str] = []
+        current = ""
+        for char in text:
+            joins_current = (
+                bool(current)
+                and (
+                    unicodedata.combining(char)
+                    or char in {"\ufe0e", "\ufe0f", "\u20e3", "\u200d"}
+                    or current.endswith("\u200d")
+                )
+            )
+            if joins_current:
+                current += char
+            else:
+                if current:
+                    clusters.append(current)
+                current = char
+        if current:
+            clusters.append(current)
+
+        result = []
+        for cluster in clusters:
+            if "\ufe0f" in cluster or "\u20e3" in cluster or "\u200d" in cluster:
+                width = 2
+            else:
+                width = sum(cls._cell_width(char) for char in cluster)
+            result.append((cluster, width))
+        return result
 
     @classmethod
     def _display_width(cls, text: str) -> int:
-        return sum(cls._cell_width(char) for char in text)
+        return sum(width for _, width in cls._display_clusters(text))
 
     def _write_line(self, message: str) -> None:
         self.stream.write(f"{message}\n")
@@ -132,12 +171,11 @@ class Progress:
         budget = width - len(suffix)
         out = []
         used = 0
-        for char in message:
-            char_width = self._cell_width(char)
-            if used + char_width > budget:
+        for cluster, cluster_width in self._display_clusters(message):
+            if used + cluster_width > budget:
                 break
-            out.append(char)
-            used += char_width
+            out.append(cluster)
+            used += cluster_width
         return "".join(out) + suffix
 
     def _render_detail(self, message: str) -> None:
@@ -229,10 +267,10 @@ def rda_entries(path: Path) -> list[dict]:
             f.seek(block)
             flags, count = struct.unpack("<II", f.read(8))
             directory_size, decompressed_size, next_block = struct.unpack("<QQQ", f.read(24))
-            if flags & 0x8:
+            if flags & 0x8:  # deleted block
                 block = next_block
                 continue
-            if flags & 0x6:
+            if flags & 0x6:  # encrypted/memory-resident not expected in save outer archive
                 raise ValueError(f"{path}: unsupported outer RDA block flags {flags:#x}")
             f.seek(block - directory_size)
             directory = f.read(directory_size)
@@ -242,18 +280,13 @@ def rda_entries(path: Path) -> list[dict]:
                 raise ValueError(f"{path}: bad RDA directory size")
             off = 0
             for _ in range(count):
-                name_raw = directory[off:off + 520]
-                off += 520
+                name_raw = directory[off:off+520]; off += 520
                 name = name_raw.decode("utf-16le", errors="replace").replace("\x00", "")
                 data_offset, compressed, filesize, timestamp, unknown = struct.unpack_from("<QQQQQ", directory, off)
                 off += 40
                 entries.append({
-                    "name": name,
-                    "offset": data_offset,
-                    "compressed_size": compressed,
-                    "size": filesize,
-                    "flags": flags,
-                    "timestamp": timestamp,
+                    "name": name, "offset": data_offset, "compressed_size": compressed,
+                    "size": filesize, "flags": flags, "timestamp": timestamp,
                 })
             if next_block <= block:
                 break
@@ -263,13 +296,13 @@ def rda_entries(path: Path) -> list[dict]:
 
 def extract_rda_member(path: Path, name: str) -> bytes:
     entries = rda_entries(path)
-    entry = next((x for x in entries if x["name"] == name), None)
-    if entry is None:
+    e = next((x for x in entries if x["name"] == name), None)
+    if e is None:
         raise KeyError(f"{name} not found in {path}")
     with path.open("rb") as f:
-        f.seek(entry["offset"])
-        raw = f.read(entry["compressed_size"])
-    if entry["flags"] & 0x1:
+        f.seek(e["offset"])
+        raw = f.read(e["compressed_size"])
+    if e["flags"] & 0x1:
         raw = zlib.decompress(raw)
     return raw
 
@@ -281,9 +314,8 @@ def zlib_to_file(compressed: bytes, dest: Path, progress: Optional[Progress] = N
         mv = memoryview(compressed)
         size = len(mv)
         for i in range(0, size, 1 << 20):
-            chunk = dec.decompress(mv[i:i + (1 << 20)])
-            out.write(chunk)
-            total += len(chunk)
+            chunk = dec.decompress(mv[i:i+(1 << 20)])
+            out.write(chunk); total += len(chunk)
             if progress is not None:
                 done = min(i + (1 << 20), size)
                 progress.maybe(
@@ -291,9 +323,7 @@ def zlib_to_file(compressed: bytes, dest: Path, progress: Optional[Progress] = N
                     f"({done / 1048576:.1f}/{size / 1048576:.1f} MiB input; "
                     f"{total / 1048576:.1f} MiB output)"
                 )
-        chunk = dec.flush()
-        out.write(chunk)
-        total += len(chunk)
+        chunk = dec.flush(); out.write(chunk); total += len(chunk)
     return total
 
 
@@ -348,8 +378,7 @@ def extract_sessions(meta_data_bin: Path, session_dir: Path, progress: Optional[
             hdr = f.read(8)
             if len(hdr) != 8:
                 break
-            size, raw_id = struct.unpack("<ii", hdr)
-            pos += 8
+            size, raw_id = struct.unpack("<ii", hdr); pos += 8
             operations += 1
             if progress is not None and operations % 10000 == 0:
                 progress.maybe(
@@ -361,8 +390,7 @@ def extract_sessions(meta_data_bin: Path, session_dir: Path, progress: Optional[
                 if stack:
                     popped = stack.pop()
                     if popped == "#1" and stack and stack[-1] == "GameSessions" and current is not None:
-                        sessions.append(current)
-                        current = None
+                        sessions.append(current); current = None
                 continue
             if ident < 32768:
                 name = tags.get(ident, f"#{ident}")
@@ -374,6 +402,7 @@ def extract_sessions(meta_data_bin: Path, session_dir: Path, progress: Optional[
 
             name = attrs.get(ident, f"@{ident}")
             padded = _padded(size)
+            # BinaryData can be tens of MB: copy it directly rather than retain in memory.
             is_session_blob = (
                 name == "BinaryData" and len(stack) >= 3 and
                 stack[-3:] == ["GameSessions", "#1", "SessionData"]
@@ -384,28 +413,21 @@ def extract_sessions(meta_data_bin: Path, session_dir: Path, progress: Optional[
                 with out_path.open("wb") as out:
                     while remaining:
                         chunk = f.read(min(1 << 20, remaining))
-                        if not chunk:
-                            raise EOFError("session blob truncated")
-                        out.write(chunk)
-                        remaining -= len(chunk)
+                        if not chunk: raise EOFError("session blob truncated")
+                        out.write(chunk); remaining -= len(chunk)
                 pad = padded - size
-                if pad:
-                    f.seek(pad, 1)
+                if pad: f.seek(pad, 1)
                 pos += padded
                 if current is not None:
                     current["binary_path"] = str(out_path)
                     current["binary_size"] = size
                 continue
 
-            raw = _read_attr(f, size)
-            pos += padded
+            raw = _read_attr(f, size); pos += padded
             if current is not None and len(stack) >= 4 and stack[-2:] == ["#1", "SessionDesc"]:
-                if name == "SessionGUID":
-                    current["guid"] = _u32(raw)
-                elif name == "SessionID":
-                    current["id"] = _u32(raw)
-                elif name == "SessionMap":
-                    current["map"] = _decode_utf16(raw)
+                if name == "SessionGUID": current["guid"] = _u32(raw)
+                elif name == "SessionID": current["id"] = _u32(raw)
+                elif name == "SessionMap": current["map"] = _decode_utf16(raw)
     return sessions
 
 
@@ -424,10 +446,8 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
         operations = 0
         while pos < tags_off:
             hdr = f.read(8)
-            if len(hdr) != 8:
-                break
-            size, raw_id = struct.unpack("<ii", hdr)
-            pos += 8
+            if len(hdr) != 8: break
+            size, raw_id = struct.unpack("<ii", hdr); pos += 8
             operations += 1
             if progress is not None and operations % 10000 == 0:
                 progress.maybe(
@@ -441,11 +461,9 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
                     if current_object is not None and len(stack) < object_depth:
                         if current_object.get("id") is not None and current_object.get("guid") is not None:
                             all_objects.append(current_object)
-                        current_object = None
-                        object_depth = -1
+                        current_object = None; object_depth = -1
                     if popped == "#1" and len(stack) >= 2 and stack[-1] == "AreaInfo" and current_area_info is not None:
-                        area_infos.append(current_area_info)
-                        current_area_info = None
+                        area_infos.append(current_area_info); current_area_info = None
                 continue
 
             if ident < 32768:
@@ -453,6 +471,7 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
                 stack.append(name)
                 if stack[-3:] == ["GameSessionManager", "AreaInfo", "#1"]:
                     current_area_info = {}
+                # Object root: .../AreaManager_N/AreaObjectManager/GameObject/objects/#1
                 if name == "#1" and len(stack) >= 6 and stack[-3:-1] == ["GameObject", "objects"]:
                     area_name = next((x for x in reversed(stack[:-3]) if AREA_RE.match(x)), None)
                     if area_name:
@@ -464,8 +483,7 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
                 continue
 
             name = attrs.get(ident, f"@{ident}")
-            raw = _read_attr(f, size)
-            pos += _padded(size)
+            raw = _read_attr(f, size); pos += _padded(size)
 
             if current_area_info is not None:
                 rel = stack[3:]
@@ -477,23 +495,23 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
                     current_area_info["area_id"] = _u32(raw)
 
             if current_object is not None and len(stack) == object_depth:
-                if name == "ID":
-                    current_object["id"] = int.from_bytes(raw, "little", signed=False)
-                elif name == "guid":
-                    current_object["guid"] = _u32(raw)
+                if name == "ID": current_object["id"] = int.from_bytes(raw, "little", signed=False)
+                elif name == "guid": current_object["guid"] = _u32(raw)
                 elif name == "Position" and len(raw) == 8:
                     current_object["position"] = list(struct.unpack("<ii", raw))
                 elif name in ("Rotation90", "Rotation") and len(raw) <= 4:
                     current_object["rotation"] = _u32(raw)
 
-    owner_by_area = {a["area_id"]: a.get("owner_id") for a in area_infos if "area_id" in a}
+    owner_by_area = {
+        a["area_id"]: a.get("owner_id") for a in area_infos if "area_id" in a
+    }
     player_area_ids = sorted(a for a, owner in owner_by_area.items() if owner == 0)
     player_set = set(player_area_ids)
 
+    # Building is the common component; include specialist markers for semantic classification.
     player_buildings = []
     for obj in all_objects:
-        if obj["area_id"] not in player_set:
-            continue
+        if obj["area_id"] not in player_set: continue
         comps = set(obj["components"])
         if "Building" not in comps and not comps.intersection({"Residence7", "Factory7", "Warehouse", "BuildingModule"}):
             continue
@@ -505,19 +523,14 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
         objs = [o for o in player_buildings if o["area_id"] == area_id]
         kinds = Counter()
         guids = Counter()
-        for obj in objs:
-            guids[obj["guid"]] += 1
-            comps = set(obj["components"])
-            if "Residence7" in comps:
-                kinds["residence"] += 1
-            if "Factory7" in comps:
-                kinds["factory"] += 1
-            if "Warehouse" in comps:
-                kinds["warehouse"] += 1
-            if "BuildingModule" in comps:
-                kinds["module"] += 1
-            if "Building" in comps:
-                kinds["building"] += 1
+        for o in objs:
+            guids[o["guid"]] += 1
+            comps = set(o["components"])
+            if "Residence7" in comps: kinds["residence"] += 1
+            if "Factory7" in comps: kinds["factory"] += 1
+            if "Warehouse" in comps: kinds["warehouse"] += 1
+            if "BuildingModule" in comps: kinds["module"] += 1
+            if "Building" in comps: kinds["building"] += 1
         info = next((a for a in area_infos if a.get("area_id") == area_id), {})
         area_summaries[str(area_id)] = {
             "owner_id": 0,
@@ -548,6 +561,7 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
             f"data.a7s={data_member['compressed_size'] / 1048576:.2f} MiB"
         )
         progress.say("  [data] reading + decompressing data.a7s")
+    # Avoid a second RDA directory scan: use the member descriptor we already have.
     with save.open("rb") as f:
         f.seek(data_member["offset"])
         compressed_data = f.read(data_member["compressed_size"])
@@ -567,15 +581,15 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
         progress.say(f"  [sessions] found {len(descriptors)} session blobs ({total_mb:.1f} MiB total)")
 
     sessions = []
-    for session_index, descriptor in enumerate(descriptors, 1):
-        session_path = Path(descriptor.pop("binary_path"))
+    for session_index, d in enumerate(descriptors, 1):
+        session_path = Path(d.pop("binary_path"))
         label_bits = []
-        if descriptor.get("guid") is not None:
-            label_bits.append(f"guid={descriptor['guid']}")
-        if descriptor.get("id") is not None:
-            label_bits.append(f"id={descriptor['id']}")
-        if descriptor.get("map"):
-            label_bits.append(f"map={descriptor['map']}")
+        if d.get("guid") is not None:
+            label_bits.append(f"guid={d['guid']}")
+        if d.get("id") is not None:
+            label_bits.append(f"id={d['id']}")
+        if d.get("map"):
+            label_bits.append(f"map={d['map']}")
         label = " ".join(label_bits)
         if progress is not None:
             progress.say(
@@ -583,7 +597,7 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
                 f"({session_path.stat().st_size / 1048576:.1f} MiB)"
             )
         parsed = parse_session(session_path, progress)
-        sessions.append({**descriptor, **parsed})
+        sessions.append({**d, **parsed})
         if progress is not None:
             progress.say(
                 f"  [session {session_index}/{len(descriptors)}] done: "
@@ -606,68 +620,48 @@ def building_key(session: dict, obj: dict) -> tuple:
 
 def diff_states(prev: dict, curr: dict) -> dict:
     a, b = {}, {}
-    for session in prev["sessions"]:
-        for obj in session["player_buildings"]:
-            a[building_key(session, obj)] = (session, obj)
-    for session in curr["sessions"]:
-        for obj in session["player_buildings"]:
-            b[building_key(session, obj)] = (session, obj)
-    added_keys = b.keys() - a.keys()
-    removed_keys = a.keys() - b.keys()
-    common = a.keys() & b.keys()
+    for s in prev["sessions"]:
+        for o in s["player_buildings"]: a[building_key(s,o)] = (s,o)
+    for s in curr["sessions"]:
+        for o in s["player_buildings"]: b[building_key(s,o)] = (s,o)
+    added_keys = b.keys() - a.keys(); removed_keys = a.keys() - b.keys(); common = a.keys() & b.keys()
 
     def compact(pair):
-        session, obj = pair
-        return {
-            "session_guid": session.get("guid"),
-            "session_id": session.get("id"),
-            "area_id": obj["area_id"],
-            "id": obj["id"],
-            "guid": obj["guid"],
-            "position": obj.get("position"),
-            "components": obj.get("components", []),
-        }
-
-    added = [compact(b[k]) for k in sorted(added_keys)]
-    removed = [compact(a[k]) for k in sorted(removed_keys)]
-    moved = []
-    changed = []
-    for key in common:
-        old_obj = a[key][1]
-        new_obj = b[key][1]
-        if old_obj.get("position") != new_obj.get("position"):
-            moved.append({
-                "session_guid": key[0], "area_id": key[1], "id": key[2], "guid": new_obj["guid"],
-                "from": old_obj.get("position"), "to": new_obj.get("position"),
-                "components": new_obj.get("components", []),
-            })
-        if old_obj.get("components") != new_obj.get("components"):
-            changed.append({
-                "session_guid": key[0], "area_id": key[1], "id": key[2], "guid": new_obj["guid"],
-                "from_components": old_obj.get("components", []),
-                "to_components": new_obj.get("components", []),
-            })
-    by_guid_add = Counter(x["guid"] for x in added)
-    by_guid_remove = Counter(x["guid"] for x in removed)
+        s,o=pair
+        return {"session_guid":s.get("guid"),"session_id":s.get("id"),"area_id":o["area_id"],
+                "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
+    added=[compact(b[k]) for k in sorted(added_keys)]
+    removed=[compact(a[k]) for k in sorted(removed_keys)]
+    moved=[]; changed=[]
+    for k in common:
+        oa=a[k][1]; ob=b[k][1]
+        if oa.get("position") != ob.get("position"):
+            moved.append({"session_guid":k[0],"area_id":k[1],"id":k[2],"guid":ob["guid"],
+                          "from":oa.get("position"),"to":ob.get("position"),"components":ob.get("components",[])})
+        if oa.get("components") != ob.get("components"):
+            changed.append({"session_guid":k[0],"area_id":k[1],"id":k[2],"guid":ob["guid"],
+                            "from_components":oa.get("components",[]),"to_components":ob.get("components",[])})
+    by_guid_add=Counter(x["guid"] for x in added); by_guid_remove=Counter(x["guid"] for x in removed)
     return {
-        "from": prev["source"], "to": curr["source"],
-        "added_count": len(added), "removed_count": len(removed),
-        "moved_count": len(moved), "component_changed_count": len(changed),
-        "added_by_guid": {str(k): v for k, v in sorted(by_guid_add.items())},
-        "removed_by_guid": {str(k): v for k, v in sorted(by_guid_remove.items())},
-        "added": added, "removed": removed, "moved": moved, "component_changed": changed,
+        "from":prev["source"],"to":curr["source"],
+        "added_count":len(added),"removed_count":len(removed),"moved_count":len(moved),"component_changed_count":len(changed),
+        "added_by_guid":{str(k):v for k,v in sorted(by_guid_add.items())},
+        "removed_by_guid":{str(k):v for k,v in sorted(by_guid_remove.items())},
+        "added":added,"removed":removed,"moved":moved,"component_changed":changed,
     }
 
 
 def strip_objects(state: dict) -> dict:
     """Compact summary safe for a human-readable report."""
-    out = {k: v for k, v in state.items() if k != "sessions"}
-    out["sessions"] = []
-    for session in state["sessions"]:
-        compact = {k: v for k, v in session.items() if k != "player_buildings"}
-        compact["player_building_count"] = len(session["player_buildings"])
-        out["sessions"].append(compact)
+    out={k:v for k,v in state.items() if k!="sessions"};out["sessions"]=[]
+    for s in state["sessions"]:
+        q={k:v for k,v in s.items() if k!="player_buildings"}
+        q["player_building_count"] = len(s["player_buildings"])
+        out["sessions"].append(q)
     return out
+
+
+
 
 
 def read_save_meta(save: Path) -> dict:
@@ -739,18 +733,18 @@ def discover_saves(inputs: list[Path], progress: Optional[Progress] = None) -> l
         progress.say(f"[scan] found {len(saves)} .a7s file(s); reading internal save timestamps")
 
     chronology: dict[Path, float] = {}
-    for i, path in enumerate(saves, 1):
+    for i, p in enumerate(saves, 1):
         try:
-            ts = cached_save_meta(path).get("last_mod_time")
+            ts = cached_save_meta(p).get("last_mod_time")
         except Exception:
             ts = None
         if ts is None:
-            ts = path.stat().st_mtime
-        chronology[path] = ts
+            ts = p.stat().st_mtime
+        chronology[p] = ts
         if progress is not None:
             progress.maybe(
                 f"[scan] metadata {i}/{len(saves)} ({100.0 * i / max(len(saves), 1):.1f}%) "
-                f"current={path.name}"
+                f"current={p.name}"
             )
 
     saves.sort(key=lambda p: (chronology[p], _natural_name_key(p)))
@@ -763,21 +757,23 @@ def select_from(saves: list[Path], start: Optional[str]) -> list[Path]:
     if not start:
         return saves
 
+    # YYYY-MM-DD means the first save whose filesystem modification date
+    # is on or after this local calendar day.
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
         try:
             wanted = date.fromisoformat(start)
         except ValueError as exc:
             raise ValueError(f"Invalid date for --from: {start}; expected YYYY-MM-DD") from exc
         selected = []
-        for path in saves:
+        for p in saves:
             try:
-                ts = cached_save_meta(path).get("last_mod_time")
+                ts = cached_save_meta(p).get("last_mod_time")
             except Exception:
                 ts = None
             if ts is None:
-                ts = path.stat().st_mtime
+                ts = p.stat().st_mtime
             if datetime.fromtimestamp(ts).date() >= wanted:
-                selected.append(path)
+                selected.append(p)
         if not selected:
             if saves:
                 try:
@@ -793,12 +789,13 @@ def select_from(saves: list[Path], start: Optional[str]) -> list[Path]:
             raise ValueError(f"No saves found on or after {wanted}{suffix}")
         return selected
 
+    # Save names are accepted with or without .a7s, case-insensitively.
     needle = start.casefold()
     needle_stem = Path(start).stem.casefold()
     index = next(
         (
-            i for i, path in enumerate(saves)
-            if path.name.casefold() == needle or path.stem.casefold() == needle_stem
+            i for i, p in enumerate(saves)
+            if p.name.casefold() == needle or p.stem.casefold() == needle_stem
         ),
         None,
     )
@@ -814,49 +811,67 @@ def print_save_list(saves: list[Path]) -> None:
     if not saves:
         print("No .a7s saves found.")
         return
-    for i, path in enumerate(saves, 1):
+    for i, p in enumerate(saves, 1):
         try:
-            ts = cached_save_meta(path).get("last_mod_time")
+            ts = cached_save_meta(p).get("last_mod_time")
         except Exception:
             ts = None
         source = "internal"
         if ts is None:
-            ts = path.stat().st_mtime
+            ts = p.stat().st_mtime
             source = "filesystem"
         modified = datetime.fromtimestamp(ts).astimezone()
-        size_mb = path.stat().st_size / (1024 * 1024)
+        size_mb = p.stat().st_size / (1024 * 1024)
         print(
             f"{i:4d}  {modified:%Y-%m-%d %H:%M:%S %z}  {size_mb:7.2f} MB  "
-            f"{path.name}  [{source}]"
+            f"{p.name}  [{source}]"
         )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Build the public CLI parser separately so its contract is testable."""
+    """Build the public CLI parser.
+
+    Keep this separate from main() so the command-line contract can be
+    regression-tested without parsing a multi-hundred-megabyte save.
+    """
     ap = argparse.ArgumentParser(
         description=(
             "Parse a folder/sequence of Anno 1800 .a7s saves into compact "
             "canonical states and diffs."
         )
     )
-    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     ap.add_argument(
-        "inputs", nargs="+", type=Path,
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    ap.add_argument(
+        "inputs",
+        nargs="+",
+        type=Path,
         help="One save folder, or one/more explicit .a7s files.",
     )
     ap.add_argument(
-        "--from", dest="start", metavar="SAVE_OR_DATE",
+        "--from",
+        dest="start",
+        metavar="SAVE_OR_DATE",
         help='Start at a save name (e.g. "Autosave 711") or internal save date YYYY-MM-DD.',
     )
     ap.add_argument(
-        "--list", action="store_true",
+        "--list",
+        action="store_true",
         help="Only list discovered saves in processing order; do not parse them.",
     )
     ap.add_argument(
-        "--limit", type=int, metavar="N",
+        "--limit",
+        type=int,
+        metavar="N",
         help="Process at most N saves after applying --from (handy for a quick test).",
     )
-    ap.add_argument("-o", "--output", type=Path, default=Path("anno-save-probe-output"))
+    ap.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("anno-save-probe-output"),
+    )
     return ap
 
 
@@ -930,10 +945,10 @@ def main(argv: Optional[list[str]] = None) -> None:
             ensure_ascii=False,
         )
     progress.say(f"[done] {args.output / 'summary.json'}")
-    for diff in diffs:
+    for d in diffs:
         print(
-            f"  {diff['from']} -> {diff['to']}: +{diff['added_count']} -{diff['removed_count']} "
-            f"moved={diff['moved_count']} changed={diff['component_changed_count']}"
+            f"  {d['from']} -> {d['to']}: +{d['added_count']} -{d['removed_count']} "
+            f"moved={d['moved_count']} changed={d['component_changed_count']}"
         )
 
 
