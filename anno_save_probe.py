@@ -679,6 +679,17 @@ def building_key(session: dict, obj: dict) -> tuple:
     return (session.get("guid"), obj["area_id"], obj["id"])
 
 
+def building_key_sort(key: tuple) -> tuple:
+    """Sort stable object keys even when an observed session has no SessionGUID."""
+    session_guid, area_id, object_id = key
+    return (
+        session_guid is None,
+        session_guid if session_guid is not None else 0,
+        area_id,
+        object_id,
+    )
+
+
 def diff_states(prev: dict, curr: dict) -> dict:
     a, b = {}, {}
     for s in prev["sessions"]:
@@ -691,10 +702,10 @@ def diff_states(prev: dict, curr: dict) -> dict:
         s,o=pair
         return {"session_guid":s.get("guid"),"session_id":s.get("id"),"area_id":o["area_id"],
                 "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
-    added=[compact(b[k]) for k in sorted(added_keys)]
-    removed=[compact(a[k]) for k in sorted(removed_keys)]
+    added=[compact(b[k]) for k in sorted(added_keys, key=building_key_sort)]
+    removed=[compact(a[k]) for k in sorted(removed_keys, key=building_key_sort)]
     moved=[]; changed=[]; guid_changed=[]
-    for k in sorted(common):
+    for k in sorted(common, key=building_key_sort):
         sa, oa = a[k]; sb, ob = b[k]
         if oa.get("guid") != ob.get("guid"):
             guid_changed.append({
