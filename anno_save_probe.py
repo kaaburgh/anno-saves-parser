@@ -459,31 +459,37 @@ def _entry_tag_ids(tags: dict[int, str]) -> set[int]:
     return result
 
 
-def _read_dictionary_at(f: BinaryIO, base_offset: int, offset: int) -> dict[int, str]:
+def _read_dictionary_at(
+    f: BinaryIO, base_offset: int, offset: int, limit_offset: int
+) -> dict[int, str]:
+    absolute_limit = base_offset + limit_offset
     f.seek(base_offset + offset)
-    count_raw = f.read(4)
-    if len(count_raw) != 4:
-        raise ValueError("bad dictionary offset")
-    count = struct.unpack("<i", count_raw)[0]
+
+    def read_exact(size: int) -> bytes:
+        if size < 0 or f.tell() + size > absolute_limit:
+            raise ValueError("dictionary exceeds FileDB slice")
+        raw = f.read(size)
+        if len(raw) != size:
+            raise ValueError("truncated dictionary")
+        return raw
+
+    count = struct.unpack("<i", read_exact(4))[0]
     if count < 0:
         raise ValueError("negative dictionary entry count")
-    ids_raw = f.read(2 * count)
-    if len(ids_raw) != 2 * count:
-        raise ValueError("truncated dictionary ids")
+    ids_raw = read_exact(2 * count)
     ids = struct.unpack("<" + "H" * count, ids_raw) if count else ()
     result: dict[int, str] = {}
     for ident in ids:
         b = bytearray()
         while True:
-            c = f.read(1)
-            if not c:
-                raise ValueError("truncated dictionary string")
+            if f.tell() >= absolute_limit:
+                raise ValueError("dictionary string exceeds FileDB slice")
+            c = read_exact(1)
             if c == b"\x00":
                 break
             b += c
         result[ident] = b.decode("utf-8", errors="replace")
     return result
-
 
 def _filedb_slice_meta(
     path: Path, base_offset: int, blob_size: int
@@ -505,8 +511,8 @@ def _filedb_slice_meta(
         data_limit = blob_size - 16
         if not (0 <= tags_off < data_limit and 0 <= attrs_off < data_limit):
             raise ValueError("FileDB dictionary offset outside slice")
-        tags = _read_dictionary_at(f, base_offset, tags_off)
-        attrs = _read_dictionary_at(f, base_offset, attrs_off)
+        tags = _read_dictionary_at(f, base_offset, tags_off, data_limit)
+        attrs = _read_dictionary_at(f, base_offset, attrs_off, data_limit)
     return tags_off, attrs_off, tags, attrs
 
 
@@ -577,6 +583,8 @@ def extract_sessions(
                     current = {"index": index}
                 continue
 
+            if size < 0:
+                raise ValueError("negative top-level FileDB attribute size")
             padded = _padded(size)
             value_offset = f.tell()
             if value_offset + padded > tags_off:
@@ -758,6 +766,8 @@ def parse_session(
                             current_object["components"].append(component)
                     continue
 
+                if size < 0:
+                    raise ValueError("negative session FileDB attribute size")
                 padded = _padded(size)
                 value_offset = pos
                 pos += padded
