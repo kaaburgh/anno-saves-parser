@@ -174,6 +174,38 @@ class ProgressTests(unittest.TestCase):
         self.assertLessEqual(probe.Progress._display_width(live_detail), 9)
         self.assertTrue(live_detail.endswith("..."))
 
+    def test_posix_dumb_terminal_falls_back_to_line_logging(self):
+        stream = FakeTTY()
+        with (
+            patch.object(probe.os, "name", "posix"),
+            patch.dict(probe.os.environ, {"TERM": "dumb"}),
+        ):
+            progress = probe.Progress(stream=stream)
+
+        progress.begin_parse("[parse 1/1] Autosave 711.a7s")
+        progress.say("  [data] working")
+        progress.finish_parse("[parse 1/1] done")
+
+        text = stream.getvalue()
+        self.assertNotIn("\x1b", text)
+        self.assertEqual(
+            text.splitlines(),
+            ["[parse 1/1] Autosave 711.a7s", "  [data] working", "[parse 1/1] done"],
+        )
+
+    def test_emoji_presentation_sequences_use_cluster_display_width(self):
+        self.assertEqual(probe.Progress._display_width("©️"), 2)
+        self.assertEqual(probe.Progress._display_width("1️⃣"), 2)
+
+        stream = FakeTTY()
+        progress = probe.Progress(stream=stream, interactive=True, terminal_width=10)
+        progress.begin_parse("[p]")
+        progress.say("©️©️©️©️©️")
+
+        live_detail = stream.getvalue().split(probe.Progress.CLEAR_LINE)[-1]
+        self.assertLessEqual(probe.Progress._display_width(live_detail), 9)
+        self.assertTrue(live_detail.endswith("..."))
+
     def test_tty_without_in_place_support_falls_back_to_line_logging(self):
         stream = FakeTTY()
         with patch.object(probe, "_supports_in_place_rendering", return_value=False):
