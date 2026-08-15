@@ -12,6 +12,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - sort them using the save's internal `LastModTime` rather than filesystem timestamps;
 - start from a save name such as `Autosave 711` or a date such as `2026-08-15`;
 - limit a batch with `--limit`;
+- opt into bounded save-level process parallelism with `--workers N` while keeping serial execution as the default;
 - parse RDA → zlib → FileDB v3 without external executables or Python packages;
 - extract session/player-area building objects into compressed canonical JSON using explicit schema v1;
 - preserve stable object identity, GUID/components, and observed transform state while excluding parser/container diagnostics from the canonical contract;
@@ -57,6 +58,14 @@ Process only the first three selected saves:
 ```powershell
 python .\anno_save_probe.py "C:\...\<profile>" --from "Autosave 711" --limit 3 -o 711_l3\
 ```
+
+Use two parser processes for a larger batch:
+
+```powershell
+python .\anno_save_probe.py "C:\...\<profile>" --from "Autosave 664" --workers 2 -o parallel_probe\
+```
+
+`--workers 1` is the default and preserves the detailed serial progress view. Values above `1` use bounded process workers so the CPU-heavy FileDB traversal is not limited by the GIL. The parent keeps at most the resolved worker count active, preserves chronological state/diff ordering even when saves finish out of order, and reports aggregate progress instead of interleaving worker logs. Each active disk-backed worker may need roughly 300–400 MiB of RAM plus about 320 MiB of temporary storage; the CLI reports available resources and warns about obviously aggressive explicit settings without silently overriding them.
 
 Show per-adjacent-pair structural diff timings as well as the always-on total diff time:
 

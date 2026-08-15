@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-08-15
+
+- Add explicit `--workers N` save-level process parallelism with serial `--workers 1` as the conservative default.
+- Bound in-flight save jobs to the resolved worker count while preserving chronological canonical-state, summary, and adjacent-diff ordering.
+- Keep parallel progress readable in the parent process and surface save-specific worker failures with clean executor/temp cleanup.
+- Report CPU, available RAM, and temp-space context plus conservative warnings for aggressive explicit worker counts.
+- Add synthetic scheduling/order/failure/resource-policy regressions and record private-save scaling/resource measurements.
+
 ## 0.3.3 — 2026-08-15
 
 - Emit deterministic `direction_changed` structural-diff events for stable building identities whose canonical `Direction` value changes.

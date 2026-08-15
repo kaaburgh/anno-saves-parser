@@ -105,6 +105,10 @@ Across multiple consecutive private-save pairs, `Position` was present on every 
 
 Initial consecutive-save experiments produced sparse, interpretable object changes in ordinary intervals and one large but coherent module-heavy construction burst. That suggests semantic clustering can recover useful decision episodes without logging every click. This is a feasibility result, not yet a quality guarantee; future economy extraction will determine how much intent can be inferred from state alone.
 
+## Batch concurrency boundary
+
+Save canonicalization is independent until adjacent diffs are built. The CLI therefore permits explicit bounded process-level concurrency with `--workers N`; the default remains one worker. Parallel workers receive only one save path at a time, build their own temporary `data.bin`, return canonical state to the parent, and do not emit interleaved stage logs. The parent preserves chronological state/diff ordering and owns output serialization/progress. This is a runtime scheduling concern only and does not change canonical schema or structural-diff semantics.
+
 ## CLI observability contract
 
 Long operations must not look hung:

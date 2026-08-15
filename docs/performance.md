@@ -62,3 +62,26 @@ Canonical schema v1 and structural-diff payload semantics are unchanged by this 
 ## Follow-up
 
 Issue #10 provides CLI-level structural-diff timing. In the representative local profile, canonicalization, gzip and a single adjacent diff are materially smaller than session parsing, so #11 does not include speculative diff rewrites or batch parallelism. Future optimization should re-profile real workloads before changing that decision.
+
+
+## Bounded batch parallelism (#16)
+
+After the serial traversal work above, independent saves are the dominant batch-level parallelism boundary. Version 0.4.0 therefore adds explicit `--workers N` process workers while deliberately keeping the default at `1`. Automatic fan-out is not enabled: each active save expands one roughly 268 MiB `data.bin` in the representative corpus and carries substantial parser/mmap state, so an implicit CPU-count default could create surprising RAM and temporary-storage pressure on Windows machines.
+
+The scheduler submits at most the resolved worker count at once, returns canonical states to their original chronological slots, writes each canonical file by source identity, and only builds adjacent diffs after all selected saves complete. Worker-internal progress is suppressed in parallel mode; the parent reports aggregate completed/running/pending counts and durable per-save completion lines. `--workers 1` retains the existing detailed serial stage output.
+
+### Local private-save scaling measurement
+
+A four-save consecutive private subset was measured in the implementation runtime using the optimized bounded-mmap traversal and the same process-per-save orchestration. This runtime reported 5 logical CPUs. The values are local evidence, not a cross-machine performance contract and not a substitute for the earlier Windows 55-save baseline.
+
+| Workers | Wall time | Saves/s | Approx active `data.bin` upper bound | Approx active-worker RSS upper bound |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 33.9 s | 0.118 | 268 MiB | 281 MiB |
+| 2 | 18.0 s | 0.223 | 536 MiB | 493 MiB |
+| 4 | 10.8 s | 0.370 | 1,071 MiB | 910 MiB |
+
+On the same two-save pair, a separate check measured 16.59 s with one worker versus 8.78 s with two workers (~1.89x). Four workers continue to improve throughput in this runtime, but resource pressure scales roughly with active saves and the per-save time itself rises modestly under contention. That tradeoff is why 0.4.0 requires explicit opt-in rather than selecting `os.cpu_count()` automatically.
+
+Peak RSS was sampled per worker with the platform `resource` API in this Linux runtime; the aggregate values above are conservative sums of the largest simultaneously active worker peaks, not a synchronized whole-process-tree measurement. Temp pressure is the sum of representative expanded `data.bin` sizes. Windows behavior can differ because process spawn, filesystem, antivirus and page-cache behavior differ; users should benchmark `1`, `2`, and `4` on their own machine before adopting a larger persistent setting.
+
+The CLI can query available physical memory through Win32 `GlobalMemoryStatusEx` or POSIX `sysconf` when available, plus free temporary-filesystem space through the standard library. These checks intentionally produce warnings rather than hard caps because the fixed per-worker values are measurements/estimates, not a proof that a particular save will or will not fit. Explicit `--workers N` remains user-controlled.

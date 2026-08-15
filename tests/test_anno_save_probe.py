@@ -34,13 +34,25 @@ class CliContractTests(unittest.TestCase):
         args = probe.parse_cli_args([r"C:\saves", "--timings"])
         self.assertTrue(args.timings)
 
+    def test_workers_default_to_serial(self):
+        args = probe.parse_cli_args([r"C:\saves"])
+        self.assertEqual(args.workers, 1)
+
+    def test_explicit_workers_are_accepted(self):
+        args = probe.parse_cli_args([r"C:\saves", "--workers", "4"])
+        self.assertEqual(args.workers, 4)
+
+    def test_non_positive_workers_are_rejected(self):
+        with self.assertRaises(SystemExit):
+            probe.parse_cli_args([r"C:\saves", "--workers", "0"])
+
     def test_help_mentions_public_options(self):
         help_text = probe.build_arg_parser().format_help()
-        for option in ("--from", "--limit", "--list", "--timings", "--output", "--version"):
+        for option in ("--from", "--limit", "--list", "--timings", "--workers", "--output", "--version"):
             self.assertIn(option, help_text)
 
     def test_version_is_exposed(self):
-        self.assertEqual(probe.__version__, "0.3.3")
+        self.assertEqual(probe.__version__, "0.4.0")
 
 
 class SelectionTests(unittest.TestCase):
