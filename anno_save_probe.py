@@ -193,8 +193,25 @@ class Progress:
         if not text:
             return 1
         columns = max(int(columns), 1)
-        width = cls._display_width(text)
-        return max((width + columns - 1) // columns, 1)
+        rows = 1
+        used = 0
+        for _, cluster_width in cls._display_clusters(text):
+            if cluster_width <= 0:
+                continue
+            if used and used + cluster_width > columns:
+                rows += 1
+                used = 0
+            if cluster_width > columns:
+                extra_rows, remainder = divmod(cluster_width, columns)
+                rows += extra_rows
+                if remainder == 0:
+                    rows -= 1
+                    used = columns
+                else:
+                    used = remainder
+            else:
+                used += cluster_width
+        return rows
 
     def _erase_parse_block(self, columns: int) -> None:
         """Erase the current header/detail block, accounting for resize reflow."""
