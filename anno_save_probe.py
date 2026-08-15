@@ -1121,7 +1121,7 @@ def diff_states(prev: dict, curr: dict) -> dict:
             moved.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
                           "from":oa.get("position"),"to":ob.get("position"),"components":ob.get("components",[])})
         if oa.get("direction") != ob.get("direction"):
-            direction_changed.append({
+            event = {
                 "session_guid": sb.get("session_guid"),
                 "session_id": sb.get("session_id"),
                 "area_id": ob["area_id"],
@@ -1130,7 +1130,10 @@ def diff_states(prev: dict, curr: dict) -> dict:
                 "from_direction": oa.get("direction"),
                 "to_direction": ob.get("direction"),
                 "components": ob.get("components", []),
-            })
+            }
+            if "map" in sb:
+                event["map"] = sb["map"]
+            direction_changed.append(event)
         if oa.get("components") != ob.get("components"):
             changed.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
                             "from_components":oa.get("components",[]),"to_components":ob.get("components",[])})
