@@ -27,7 +27,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 CANONICAL_SCHEMA = "anno-saves-parser/canonical-state"
 CANONICAL_SCHEMA_VERSION = 1
@@ -877,6 +877,29 @@ def diff_states(prev: dict, curr: dict) -> dict:
     }
 
 
+def build_adjacent_diffs(
+    states: list[dict], progress: Progress, detailed_timings: bool = False
+) -> list[dict]:
+    """Build adjacent structural diffs and report execution timing to the CLI only."""
+    pair_count = max(len(states) - 1, 0)
+    progress.say(f"[diff] comparing {pair_count} adjacent save pair(s)")
+    phase_started = time.monotonic()
+    diffs = []
+    for pair_index, (prev, curr) in enumerate(zip(states, states[1:]), 1):
+        pair_started = time.monotonic()
+        diff = diff_states(prev, curr)
+        diffs.append(diff)
+        if detailed_timings:
+            pair_elapsed = time.monotonic() - pair_started
+            progress.say(
+                f"  [diff {pair_index}/{pair_count}] "
+                f"{diff['from']} -> {diff['to']}: {pair_elapsed:.3f}s"
+            )
+    phase_elapsed = time.monotonic() - phase_started
+    progress.say(f"[diff] done in {phase_elapsed:.1f}s: {pair_count} pair(s)")
+    return diffs
+
+
 def strip_objects(state: dict) -> dict:
     """Build a non-canonical state projection for the batch summary."""
     _require_canonical_v1(state)
@@ -1114,6 +1137,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Process at most N saves after applying --from (handy for a quick test).",
     )
     ap.add_argument(
+        "--timings",
+        action="store_true",
+        help=(
+            "Report per-adjacent-pair structural diff elapsed time; total diff time "
+            "is always reported."
+        ),
+    )
+    ap.add_argument(
         "-o",
         "--output",
         type=Path,
@@ -1182,8 +1213,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             f"player_buildings={sum(len(s['buildings']) for s in state['sessions']):,}"
         )
 
-    progress.say(f"[diff] comparing {max(len(states) - 1, 0)} adjacent save pair(s)")
-    diffs = [diff_states(a, b) for a, b in zip(states, states[1:])]
+    diffs = build_adjacent_diffs(states, progress, detailed_timings=args.timings)
     with (args.output / "summary.json").open("w", encoding="utf8") as f:
         json.dump(
             build_batch_summary(states, diffs),
