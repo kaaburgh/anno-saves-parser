@@ -39,11 +39,12 @@ class RecordingProgress:
 
 
 class FakeFuture:
-    def __init__(self, result=None, exc=None, sort_key=""):
+    def __init__(self, result=None, exc=None, sort_key="", cancel_result=True):
         self._result = result
         self._exc = exc
         self.sort_key = sort_key
         self.cancelled = False
+        self.cancel_result = cancel_result
 
     def result(self):
         if self._exc is not None:
@@ -52,7 +53,7 @@ class FakeFuture:
 
     def cancel(self):
         self.cancelled = True
-        return True
+        return self.cancel_result
 
 
 class FakeExecutor:
@@ -225,6 +226,73 @@ class ParallelBatchTests(unittest.TestCase):
         executor = FakeExecutor.instances[0]
         self.assertIn((True, True), executor.shutdown_calls)
         self.assertTrue(any(future.cancelled for future in executor.submitted))
+
+    def test_parallel_failure_reports_cleanup_while_running_worker_finishes(self):
+        saves = [Path("Autosave 1.a7s"), Path("Autosave 2.a7s")]
+        progress = RecordingProgress()
+        running = FakeFuture(
+            result=(state("Autosave 1.a7s"), 0.1),
+            sort_key="Autosave 1.a7s",
+            cancel_result=False,
+        )
+        failed = FakeFuture(
+            exc=ValueError("synthetic failure"),
+            sort_key="Autosave 2.a7s",
+        )
+
+        class ControlledExecutor:
+            def __init__(self, max_workers):
+                self.max_workers = max_workers
+                self.submitted = []
+                self.shutdown_calls = []
+
+            def submit(self, fn, save_path):
+                future = running if save_path.endswith("1.a7s") else failed
+                self.submitted.append(future)
+                return future
+
+            def shutdown(self, wait=True, cancel_futures=False):
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        executor_holder = []
+
+        def executor_factory(max_workers):
+            executor = ControlledExecutor(max_workers)
+            executor_holder.append(executor)
+            return executor
+
+        calls = 0
+
+        def controlled_wait(futures, timeout, return_when):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return {failed}, set(futures) - {failed}
+            if calls == 2:
+                return set(), set(futures)
+            return set(futures), set()
+
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Autosave 2.a7s: parallel parse failed: ValueError: synthetic failure",
+            ):
+                probe.parse_saves_parallel(
+                    saves,
+                    Path(td),
+                    progress,
+                    workers=2,
+                    executor_factory=executor_factory,
+                    wait_fn=controlled_wait,
+                )
+
+        text = "\n".join(progress.messages)
+        self.assertIn("failure detected", text)
+        self.assertIn("Autosave 2.a7s", text)
+        self.assertIn("failure cleanup: waiting for 1 active worker", text)
+        self.assertIn("failure cleanup complete", text)
+        self.assertTrue(running.cancelled)
+        self.assertIn((True, True), executor_holder[0].shutdown_calls)
 
     def test_workers_one_uses_existing_serial_path(self):
         saves = [Path("Autosave 1.a7s"), Path("Autosave 2.a7s")]
