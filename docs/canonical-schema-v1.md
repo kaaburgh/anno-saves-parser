@@ -75,7 +75,7 @@ Source metadata is descriptive and is not part of stable game-object identity.
 
 ### `sessions`
 
-Required array. Sessions are sorted deterministically by observed `session_guid`, then `session_id`, with sessions lacking a GUID after sessions with an observed GUID. Raw extraction order is not canonical.
+Required array. Sessions are sorted deterministically by observed `session_guid`, then `session_id`, then `map`, with sessions lacking a GUID after sessions with an observed GUID. If those identity/descriptor values tie, the fully normalized canonical session content is used as a deterministic final tie-breaker. Raw extraction order is never a canonical ordering input; exact duplicate canonical sessions are indistinguishable and therefore order-equivalent.
 
 ## Session fields
 
@@ -134,7 +134,7 @@ Optional fields are emitted only when the parser has decoded an observed support
 
 For the same decoded game state and parser version, canonical semantic content and array ordering are deterministic:
 
-- sessions use canonical session ordering;
+- sessions use identity/descriptor ordering plus normalized canonical content as a final tie-breaker;
 - areas are sorted by `area_id`;
 - buildings are sorted by `(area_id, id, guid)`;
 - component sets are deduplicated and sorted.
