@@ -147,6 +147,16 @@ class ParallelBatchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same canonical output filename"):
             probe.validate_canonical_output_names(saves)
 
+    def test_case_only_collision_is_rejected_independently_of_host_os(self):
+        saves = [Path("left/Autosave.a7s"), Path("right/autosave.a7s")]
+        with self.assertRaisesRegex(ValueError, "same canonical output filename"):
+            probe.validate_canonical_output_names(saves)
+
+    def test_unicode_normalization_collision_is_rejected(self):
+        saves = [Path("left/Café.a7s"), Path("right/Cafe\u0301.a7s")]
+        with self.assertRaisesRegex(ValueError, "same canonical output filename"):
+            probe.validate_canonical_output_names(saves)
+
     def test_parallel_completion_order_does_not_reorder_states_or_files(self):
         saves = [Path(f"Autosave {n}.a7s") for n in (1, 2, 3)]
         progress = RecordingProgress()
