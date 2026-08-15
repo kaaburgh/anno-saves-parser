@@ -693,9 +693,19 @@ def diff_states(prev: dict, curr: dict) -> dict:
                 "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
     added=[compact(b[k]) for k in sorted(added_keys)]
     removed=[compact(a[k]) for k in sorted(removed_keys)]
-    moved=[]; changed=[]
-    for k in common:
-        oa=a[k][1]; ob=b[k][1]
+    moved=[]; changed=[]; guid_changed=[]
+    for k in sorted(common):
+        sa, oa = a[k]; sb, ob = b[k]
+        if oa.get("guid") != ob.get("guid"):
+            guid_changed.append({
+                "session_guid": k[0],
+                "session_id": sb.get("id"),
+                "area_id": k[1],
+                "id": k[2],
+                "from_guid": oa.get("guid"),
+                "to_guid": ob.get("guid"),
+                "components": ob.get("components", []),
+            })
         if oa.get("position") != ob.get("position"):
             moved.append({"session_guid":k[0],"area_id":k[1],"id":k[2],"guid":ob["guid"],
                           "from":oa.get("position"),"to":ob.get("position"),"components":ob.get("components",[])})
@@ -706,9 +716,10 @@ def diff_states(prev: dict, curr: dict) -> dict:
     return {
         "from":prev["source"],"to":curr["source"],
         "added_count":len(added),"removed_count":len(removed),"moved_count":len(moved),"component_changed_count":len(changed),
+        "guid_changed_count":len(guid_changed),
         "added_by_guid":{str(k):v for k,v in sorted(by_guid_add.items())},
         "removed_by_guid":{str(k):v for k,v in sorted(by_guid_remove.items())},
-        "added":added,"removed":removed,"moved":moved,"component_changed":changed,
+        "added":added,"removed":removed,"moved":moved,"component_changed":changed,"guid_changed":guid_changed,
     }
 
 
