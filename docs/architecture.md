@@ -107,7 +107,7 @@ Initial consecutive-save experiments produced sparse, interpretable object chang
 
 ## Batch concurrency boundary
 
-Save canonicalization is independent until adjacent diffs are built. The CLI therefore permits explicit bounded process-level concurrency with `--workers N`; the default remains one worker. Parallel workers receive only one save path at a time, build their own temporary `data.bin`, return canonical state to the parent, and do not emit interleaved stage logs. The parent preserves chronological state/diff ordering and owns output serialization/progress. This is a runtime scheduling concern only and does not change canonical schema or structural-diff semantics.
+Save canonicalization is independent until adjacent diffs are built. The CLI therefore permits explicit bounded process-level concurrency with `--workers N`; the default remains one worker. Parallel workers receive only one save path at a time, build their own temporary `data.bin`, return canonical state to the parent, and do not emit interleaved stage logs. The parent preserves chronological state/diff ordering and owns output serialization/progress. Before any worker is scheduled, it rejects source sets whose derived canonical output names collide under filesystem-independent Unicode NFC normalization plus case-folding, preventing completion order from deciding which state survives even when a POSIX host writes to a case-insensitive or Unicode-normalizing volume. This is a runtime scheduling concern only and does not change canonical schema or structural-diff semantics.
 
 ## CLI observability contract
 

@@ -81,7 +81,7 @@ python .\anno_save_probe.py --version
 
 ## Output
 
-For each processed save the CLI writes a compressed **canonical state v1** document, plus a compact `summary.json` batch report. Before parsing starts, the selected batch is rejected if two source saves would map to the same canonical filename (for example because spaces normalize to underscores or two input directories contain the same basename), preventing silent overwrite and completion-order-dependent output:
+For each processed save the CLI writes a compressed **canonical state v1** document, plus a compact `summary.json` batch report. Before parsing starts, the selected batch is rejected if two source saves would map to the same canonical filename (for example because spaces normalize to underscores, two input directories contain the same basename, or names differ only by case/Unicode normalization), preventing silent overwrite and completion-order-dependent output. Collision comparison deliberately uses Unicode NFC + case-folding rather than host `normcase`, so safety does not depend on whether a POSIX-mounted output volume is case-sensitive:
 
 ```text
 output/
