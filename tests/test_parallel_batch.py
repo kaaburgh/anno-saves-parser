@@ -110,7 +110,12 @@ class WorkerPolicyTests(unittest.TestCase):
         values = {"SC_PAGE_SIZE": 4096, "SC_AVPHYS_PAGES": 1024}
         with (
             patch.object(probe.os, "name", "posix"),
-            patch.object(probe.os, "sysconf", side_effect=lambda key: values[key]),
+            patch.object(
+                probe.os,
+                "sysconf",
+                side_effect=lambda key: values[key],
+                create=True,
+            ),
         ):
             self.assertEqual(probe._available_memory_bytes(), 4 * 1024 * 1024)
 
