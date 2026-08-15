@@ -182,18 +182,23 @@ class CanonicalSchemaV1Tests(unittest.TestCase):
         self.assertNotIn("direction", building)
         self.assertNotIn("rotation", building)
 
-    def test_summary_keeps_contract_metadata_and_omits_building_arrays(self):
+    def test_batch_summary_references_schema_without_masquerading_projections_as_states(self):
         state = probe.build_canonical_state("Synthetic Save.a7s", self._raw_sessions())
 
-        summary = probe.strip_objects(state)
+        summary = probe.build_batch_summary([state], [])
+        projection = summary["states"][0]
 
-        self.assertEqual(summary["schema"], probe.CANONICAL_SCHEMA)
-        self.assertEqual(summary["schema_version"], 1)
-        self.assertEqual(summary["source"], {"save_name": "Synthetic Save.a7s"})
-        self.assertEqual(summary["sessions"][0]["building_count"], 2)
-        self.assertEqual(summary["sessions"][1]["building_count"], 1)
-        self.assertEqual(summary["sessions"][0]["player_areas"][0]["area_id"], 3)
-        self.assertNotIn("buildings", summary["sessions"][0])
+        self.assertEqual(
+            summary["canonical_schema"],
+            {"name": probe.CANONICAL_SCHEMA, "version": 1},
+        )
+        self.assertNotIn("schema", projection)
+        self.assertNotIn("schema_version", projection)
+        self.assertEqual(projection["source"], {"save_name": "Synthetic Save.a7s"})
+        self.assertEqual(projection["sessions"][0]["building_count"], 2)
+        self.assertEqual(projection["sessions"][1]["building_count"], 1)
+        self.assertEqual(projection["sessions"][0]["player_areas"][0]["area_id"], 3)
+        self.assertNotIn("buildings", projection["sessions"][0])
 
 
 if __name__ == "__main__":
