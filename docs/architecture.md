@@ -116,7 +116,8 @@ Long operations must not look hung:
 - print the start of a new stage immediately and flush stdout;
 - if a stage completes quickly, print its result directly;
 - if it continues, emit a heartbeat/progress line roughly once per second;
-- include useful counters/percentages where cheaply available.
+- include useful counters/percentages where cheaply available;
+- after a parallel worker failure, report the failure immediately and keep roughly one-second cleanup heartbeats visible while already-running workers finish.
 
 This behavior is part of the CLI UX and is covered by regression tests.
 

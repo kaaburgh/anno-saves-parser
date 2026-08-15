@@ -6,7 +6,7 @@
 
 - Add explicit `--workers N` save-level process parallelism with serial `--workers 1` as the conservative default.
 - Bound in-flight save jobs to the resolved worker count while preserving chronological canonical-state, summary, and adjacent-diff ordering; reject canonical output-name collisions before scheduling using filesystem-independent Unicode-normalized case-folding so parallel completion order cannot silently overwrite snapshots.
-- Keep parallel progress readable in the parent process and surface save-specific worker failures with clean executor/temp cleanup.
+- Keep parallel progress readable in the parent process and surface save-specific worker failures immediately, with cleanup heartbeats while already-running workers finish before clean executor/temp shutdown.
 - Report CPU, available RAM, and temp-space context plus conservative warnings for aggressive explicit worker counts; reject the Windows `ProcessPoolExecutor` hard limit above 61 before pool construction.
 - Add synthetic scheduling/order/failure/resource-policy regressions and record private-save scaling/resource measurements.
 
