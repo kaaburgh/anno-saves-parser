@@ -3,9 +3,11 @@
 ## 0.2.1 — 2026-08-15
 
 - Render per-save parse progress in place on interactive terminals: one persistent completion line per save plus one live detail line for the current save.
+- Enable and verify Windows Virtual Terminal processing before using cursor-control sequences; otherwise fall back to line-oriented logging.
 - Keep redirected, piped, and CI output line-oriented and free of ANSI cursor-control sequences.
-- Truncate live terminal lines to avoid wrapping that would break cursor accounting.
-- Add synthetic regression tests for interactive rendering, non-TTY logging, and terminal-width handling.
+- Truncate live terminal lines by rendered terminal-cell width to avoid wrapping that would break cursor accounting.
+- Close an active live parse block cleanly before propagating parse/write failures.
+- Add synthetic regression tests for interactive rendering, Windows VT fallback, failure cleanup, non-TTY logging, and terminal-width handling.
 
 ## 0.2.0 — 2026-08-15
 
