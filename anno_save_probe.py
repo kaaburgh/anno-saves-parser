@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import mmap
 import os
 import re
 import shutil
@@ -27,7 +28,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 CANONICAL_SCHEMA = "anno-saves-parser/canonical-state"
 CANONICAL_SCHEMA_VERSION = 1
@@ -446,188 +447,430 @@ def _read_attr(f: BinaryIO, size: int) -> bytes:
     return raw[:size]
 
 
-def extract_sessions(meta_data_bin: Path, session_dir: Path, progress: Optional[Progress] = None) -> list[dict]:
-    """Extract embedded BBDom session blobs and descriptors from top-level data.a7s."""
-    session_dir.mkdir(parents=True, exist_ok=True)
+def _ids_named(dictionary: dict[int, str], name: str) -> set[int]:
+    return {ident for ident, value in dictionary.items() if value == name}
+
+
+def _entry_tag_ids(tags: dict[int, str]) -> set[int]:
+    """Return tag IDs that the legacy name-based scanner resolves as ``#1``."""
+    result = _ids_named(tags, "#1")
+    if 1 not in tags:
+        result.add(1)
+    return result
+
+
+def _read_dictionary_at(f: BinaryIO, base_offset: int, offset: int) -> dict[int, str]:
+    f.seek(base_offset + offset)
+    count_raw = f.read(4)
+    if len(count_raw) != 4:
+        raise ValueError("bad dictionary offset")
+    count = struct.unpack("<i", count_raw)[0]
+    if count < 0:
+        raise ValueError("negative dictionary entry count")
+    ids_raw = f.read(2 * count)
+    if len(ids_raw) != 2 * count:
+        raise ValueError("truncated dictionary ids")
+    ids = struct.unpack("<" + "H" * count, ids_raw) if count else ()
+    result: dict[int, str] = {}
+    for ident in ids:
+        b = bytearray()
+        while True:
+            c = f.read(1)
+            if not c:
+                raise ValueError("truncated dictionary string")
+            if c == b"\x00":
+                break
+            b += c
+        result[ident] = b.decode("utf-8", errors="replace")
+    return result
+
+
+def _filedb_slice_meta(
+    path: Path, base_offset: int, blob_size: int
+) -> tuple[int, int, dict[int, str], dict[int, str]]:
+    """Read FileDB v3 metadata whose offsets are relative to a bounded file slice."""
+    if base_offset < 0 or blob_size < 16:
+        raise ValueError("invalid FileDB slice bounds")
+    file_size = path.stat().st_size
+    if base_offset + blob_size > file_size:
+        raise ValueError("FileDB slice exceeds source file")
+    with path.open("rb") as f:
+        f.seek(base_offset + blob_size - 16)
+        trailer = f.read(16)
+        if len(trailer) != 16:
+            raise ValueError("truncated FileDB trailer")
+        tags_off, attrs_off = struct.unpack("<ii", trailer[:8])
+        if trailer[8:] != BBDOM_V3_MAGIC:
+            raise ValueError(f"{path}: not FileDB/BBDom v3")
+        data_limit = blob_size - 16
+        if not (0 <= tags_off < data_limit and 0 <= attrs_off < data_limit):
+            raise ValueError("FileDB dictionary offset outside slice")
+        tags = _read_dictionary_at(f, base_offset, tags_off)
+        attrs = _read_dictionary_at(f, base_offset, attrs_off)
+    return tags_off, attrs_off, tags, attrs
+
+
+def extract_sessions(
+    meta_data_bin: Path,
+    session_dir: Optional[Path] = None,
+    progress: Optional[Progress] = None,
+) -> list[dict]:
+    """Locate embedded BBDom session blobs without copying them to temp files."""
+    # ``session_dir`` remains accepted for internal/backward compatibility, but
+    # sessions are now represented as bounded offsets into meta_data_bin.
+    del session_dir
     tags_off, _, tags, attrs = bb_meta(meta_data_bin)
+    entry_ids = _entry_tag_ids(tags)
+    game_sessions_ids = _ids_named(tags, "GameSessions")
+    session_data_ids = _ids_named(tags, "SessionData")
+    session_desc_ids = _ids_named(tags, "SessionDesc")
+    binary_data_ids = _ids_named(attrs, "BinaryData")
+    session_guid_ids = _ids_named(attrs, "SessionGUID")
+    session_id_ids = _ids_named(attrs, "SessionID")
+    session_map_ids = _ids_named(attrs, "SessionMap")
+
     sessions: list[dict] = []
-    stack: list[str] = []
+    stack: list[int] = []
     current: Optional[dict] = None
     index = -1
+    operations = 0
+    next_progress = 10000
+
     with meta_data_bin.open("rb") as f:
         pos = 0
-        operations = 0
         while pos < tags_off:
             hdr = f.read(8)
             if len(hdr) != 8:
-                break
-            size, raw_id = struct.unpack("<ii", hdr); pos += 8
+                raise EOFError("top-level FileDB record header truncated")
+            size, raw_id = struct.unpack("<ii", hdr)
+            pos += 8
             operations += 1
-            if progress is not None and operations % 10000 == 0:
+            if progress is not None and operations == next_progress:
                 progress.maybe(
                     f"    [sessions] scanning {100.0 * pos / max(tags_off, 1):5.1f}% "
                     f"sessions_found={len(sessions) + (1 if current is not None else 0)}"
                 )
+                next_progress += 10000
+
             ident = raw_id & 0xFFFF
             if ident == 0:
                 if stack:
                     popped = stack.pop()
-                    if popped == "#1" and stack and stack[-1] == "GameSessions" and current is not None:
-                        sessions.append(current); current = None
+                    if (
+                        popped in entry_ids
+                        and stack
+                        and stack[-1] in game_sessions_ids
+                        and current is not None
+                    ):
+                        sessions.append(current)
+                        current = None
                 continue
+
             if ident < 32768:
-                name = tags.get(ident, f"#{ident}")
-                stack.append(name)
-                if name == "#1" and len(stack) >= 2 and stack[-2] == "GameSessions":
+                stack.append(ident)
+                if (
+                    ident in entry_ids
+                    and len(stack) >= 2
+                    and stack[-2] in game_sessions_ids
+                ):
                     index += 1
                     current = {"index": index}
                 continue
 
-            name = attrs.get(ident, f"@{ident}")
             padded = _padded(size)
-            # BinaryData can be tens of MB: copy it directly rather than retain in memory.
+            value_offset = f.tell()
+            if value_offset + padded > tags_off:
+                raise EOFError("top-level FileDB attribute payload truncated")
+
             is_session_blob = (
-                name == "BinaryData" and len(stack) >= 3 and
-                stack[-3:] == ["GameSessions", "#1", "SessionData"]
+                ident in binary_data_ids
+                and len(stack) >= 3
+                and stack[-1] in session_data_ids
+                and stack[-2] in entry_ids
+                and stack[-3] in game_sessions_ids
             )
             if is_session_blob:
-                out_path = session_dir / f"session-{index}.bin"
-                remaining = size
-                with out_path.open("wb") as out:
-                    while remaining:
-                        chunk = f.read(min(1 << 20, remaining))
-                        if not chunk: raise EOFError("session blob truncated")
-                        out.write(chunk); remaining -= len(chunk)
-                pad = padded - size
-                if pad: f.seek(pad, 1)
-                pos += padded
                 if current is not None:
-                    current["binary_path"] = str(out_path)
+                    current["binary_offset"] = value_offset
                     current["binary_size"] = size
+                f.seek(padded, 1)
+                pos += padded
                 continue
 
-            raw = _read_attr(f, size); pos += padded
-            if current is not None and len(stack) >= 4 and stack[-2:] == ["#1", "SessionDesc"]:
-                if name == "SessionGUID": current["guid"] = _u32(raw)
-                elif name == "SessionID": current["id"] = _u32(raw)
-                elif name == "SessionMap": current["map"] = _decode_utf16(raw)
+            descriptor_attr = (
+                current is not None
+                and len(stack) >= 4
+                and stack[-1] in session_desc_ids
+                and stack[-2] in entry_ids
+                and (
+                    ident in session_guid_ids
+                    or ident in session_id_ids
+                    or ident in session_map_ids
+                )
+            )
+            if descriptor_attr:
+                raw = _read_attr(f, size)
+                if ident in session_guid_ids:
+                    current["guid"] = _u32(raw)
+                elif ident in session_id_ids:
+                    current["id"] = _u32(raw)
+                elif ident in session_map_ids:
+                    current["map"] = _decode_utf16(raw)
+            else:
+                f.seek(padded, 1)
+            pos += padded
+
+    for session in sessions:
+        if "binary_offset" not in session or "binary_size" not in session:
+            raise ValueError("GameSession descriptor is missing BinaryData")
     return sessions
 
 
-def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
-    """Extract area ownership and object/building state from one GameSession blob."""
-    tags_off, _, tags, attrs = bb_meta(path)
-    stack: list[str] = []
+def parse_session(
+    path: Path,
+    progress: Optional[Progress] = None,
+    *,
+    base_offset: int = 0,
+    blob_size: Optional[int] = None,
+) -> dict:
+    """Extract area ownership and building state from one bounded GameSession blob."""
+    if blob_size is None:
+        blob_size = path.stat().st_size - base_offset
+    tags_off, _, tags, attrs = _filedb_slice_meta(path, base_offset, blob_size)
+
+    entry_ids = _entry_tag_ids(tags)
+    game_session_manager_ids = _ids_named(tags, "GameSessionManager")
+    area_info_ids = _ids_named(tags, "AreaInfo")
+    owner_ids = _ids_named(tags, "Owner")
+    passive_trade_ids = _ids_named(tags, "PassiveTrade")
+    game_object_ids = _ids_named(tags, "GameObject")
+    objects_ids = _ids_named(tags, "objects")
+    component_by_id = {
+        ident: name for ident, name in tags.items() if name in INTERESTING_COMPONENTS
+    }
+    area_by_tag = {}
+    for ident, name in tags.items():
+        match = AREA_RE.match(name)
+        if match:
+            area_by_tag[ident] = int(match.group(1))
+
+    owner_id_attrs = _ids_named(attrs, "id")
+    area_id_attrs = _ids_named(attrs, "AreaID")
+    city_name_guid_attrs = _ids_named(attrs, "CityNameGuid")
+    city_name_iterator_attrs = _ids_named(attrs, "CityNameIterator")
+    object_id_attrs = _ids_named(attrs, "ID")
+    guid_attrs = _ids_named(attrs, "guid")
+    position_attrs = _ids_named(attrs, "Position")
+    direction_attrs = _ids_named(attrs, "Direction")
+    rotation_attrs = _ids_named(attrs, "Rotation90") | _ids_named(attrs, "Rotation")
+
+    stack: list[int] = []
     area_infos: list[dict] = []
     current_area_info: Optional[dict] = None
+    area_info_depth = -1
     current_object: Optional[dict] = None
     object_depth = -1
     all_objects: list[dict] = []
+    current_area_id: Optional[int] = None
+    area_depth = -1
+    operations = 0
+    next_progress = 10000
+
+    granularity = mmap.ALLOCATIONGRANULARITY
+    map_offset = (base_offset // granularity) * granularity
+    delta = base_offset - map_offset
+    map_length = delta + blob_size
 
     with path.open("rb") as f:
-        pos = 0
-        operations = 0
-        while pos < tags_off:
-            hdr = f.read(8)
-            if len(hdr) != 8: break
-            size, raw_id = struct.unpack("<ii", hdr); pos += 8
-            operations += 1
-            if progress is not None and operations % 10000 == 0:
-                progress.maybe(
-                    f"      scanning {100.0 * pos / max(tags_off, 1):5.1f}% "
-                    f"objects={len(all_objects):,} areas={len(area_infos):,}"
-                )
-            ident = raw_id & 0xFFFF
-            if ident == 0:
-                if stack:
-                    popped = stack.pop()
-                    if current_object is not None and len(stack) < object_depth:
-                        if current_object.get("id") is not None and current_object.get("guid") is not None:
-                            all_objects.append(current_object)
-                        current_object = None; object_depth = -1
-                    if popped == "#1" and len(stack) >= 2 and stack[-1] == "AreaInfo" and current_area_info is not None:
-                        area_infos.append(current_area_info); current_area_info = None
-                continue
+        with mmap.mmap(
+            f.fileno(), map_length, access=mmap.ACCESS_READ, offset=map_offset
+        ) as mapped:
+            pos = 0
+            while pos < tags_off:
+                if pos + 8 > tags_off:
+                    raise EOFError("session FileDB record header truncated")
+                size, raw_id = struct.unpack_from("<ii", mapped, delta + pos)
+                pos += 8
+                operations += 1
+                if progress is not None and operations == next_progress:
+                    progress.maybe(
+                        f"      scanning {100.0 * pos / max(tags_off, 1):5.1f}% "
+                        f"objects={len(all_objects):,} areas={len(area_infos):,}"
+                    )
+                    next_progress += 10000
 
-            if ident < 32768:
-                name = tags.get(ident, f"#{ident}")
-                stack.append(name)
-                if stack[-3:] == ["GameSessionManager", "AreaInfo", "#1"]:
-                    current_area_info = {}
-                # Object root: .../AreaManager_N/AreaObjectManager/GameObject/objects/#1
-                if name == "#1" and len(stack) >= 6 and stack[-3:-1] == ["GameObject", "objects"]:
-                    area_name = next((x for x in reversed(stack[:-3]) if AREA_RE.match(x)), None)
-                    if area_name:
-                        area_id = int(AREA_RE.match(area_name).group(1))
-                        current_object = {"area_id": area_id, "components": []}
-                        object_depth = len(stack)
-                elif current_object is not None and len(stack) == object_depth + 1 and name in INTERESTING_COMPONENTS:
-                    current_object["components"].append(name)
-                continue
+                ident = raw_id & 0xFFFF
+                if ident == 0:
+                    if stack:
+                        popped = stack.pop()
+                        depth = len(stack)
+                        if current_object is not None and depth < object_depth:
+                            if (
+                                current_object.get("id") is not None
+                                and current_object.get("guid") is not None
+                            ):
+                                all_objects.append(current_object)
+                            current_object = None
+                            object_depth = -1
+                        if (
+                            current_area_info is not None
+                            and popped in entry_ids
+                            and stack
+                            and stack[-1] in area_info_ids
+                        ):
+                            area_infos.append(current_area_info)
+                            current_area_info = None
+                            area_info_depth = -1
+                        if current_area_id is not None and depth < area_depth:
+                            current_area_id = None
+                            area_depth = -1
+                    continue
 
-            name = attrs.get(ident, f"@{ident}")
-            raw = _read_attr(f, size); pos += _padded(size)
+                if ident < 32768:
+                    stack.append(ident)
+                    depth = len(stack)
+                    if ident in area_by_tag:
+                        current_area_id = area_by_tag[ident]
+                        area_depth = depth
+                    if (
+                        ident in entry_ids
+                        and depth >= 3
+                        and stack[-2] in area_info_ids
+                        and stack[-3] in game_session_manager_ids
+                    ):
+                        current_area_info = {}
+                        area_info_depth = depth
+                    if (
+                        ident in entry_ids
+                        and depth >= 6
+                        and stack[-2] in objects_ids
+                        and stack[-3] in game_object_ids
+                        and current_area_id is not None
+                    ):
+                        current_object = {
+                            "area_id": current_area_id,
+                            "components": [],
+                        }
+                        object_depth = depth
+                    elif current_object is not None and depth == object_depth + 1:
+                        component = component_by_id.get(ident)
+                        if component is not None:
+                            current_object["components"].append(component)
+                    continue
 
-            if current_area_info is not None:
-                rel = stack[3:]
-                if rel == [] and name in ("CityNameGuid", "CityNameIterator"):
-                    current_area_info[name] = _u32(raw)
-                elif rel == ["Owner"] and name == "id":
-                    current_area_info["owner_id"] = _u32(raw)
-                elif rel == ["PassiveTrade"] and name == "AreaID":
-                    current_area_info["area_id"] = _u32(raw)
+                padded = _padded(size)
+                value_offset = pos
+                pos += padded
+                if pos > tags_off:
+                    raise EOFError("session FileDB attribute payload truncated")
+                depth = len(stack)
+                mapped_offset = delta + value_offset
 
-            if current_object is not None and len(stack) == object_depth:
-                if name == "ID": current_object["id"] = int.from_bytes(raw, "little", signed=False)
-                elif name == "guid": current_object["guid"] = _u32(raw)
-                elif name == "Position":
-                    decoded = _decode_position(raw)
-                    if decoded is not None:
-                        current_object["position"] = decoded
-                elif name == "Direction":
-                    decoded = _decode_direction(raw)
-                    if decoded is not None:
-                        current_object["direction"] = decoded
-                elif name in ("Rotation90", "Rotation") and len(raw) <= 4:
-                    current_object["rotation"] = _u32(raw)
+                if current_area_info is not None:
+                    relative_depth = depth - area_info_depth
+                    if relative_depth == 0:
+                        if ident in city_name_guid_attrs:
+                            current_area_info["CityNameGuid"] = _u32(
+                                mapped[mapped_offset:mapped_offset + size]
+                            )
+                        elif ident in city_name_iterator_attrs:
+                            current_area_info["CityNameIterator"] = _u32(
+                                mapped[mapped_offset:mapped_offset + size]
+                            )
+                    elif relative_depth == 1:
+                        parent = stack[-1]
+                        if parent in owner_ids and ident in owner_id_attrs:
+                            current_area_info["owner_id"] = _u32(
+                                mapped[mapped_offset:mapped_offset + size]
+                            )
+                        elif parent in passive_trade_ids and ident in area_id_attrs:
+                            current_area_info["area_id"] = _u32(
+                                mapped[mapped_offset:mapped_offset + size]
+                            )
+
+                if current_object is not None and depth == object_depth:
+                    if ident in object_id_attrs:
+                        current_object["id"] = int.from_bytes(
+                            mapped[mapped_offset:mapped_offset + size],
+                            "little",
+                            signed=False,
+                        )
+                    elif ident in guid_attrs:
+                        current_object["guid"] = _u32(
+                            mapped[mapped_offset:mapped_offset + size]
+                        )
+                    elif ident in position_attrs:
+                        decoded = _decode_position(
+                            mapped[mapped_offset:mapped_offset + size]
+                        )
+                        if decoded is not None:
+                            current_object["position"] = decoded
+                    elif ident in direction_attrs:
+                        decoded = _decode_direction(
+                            mapped[mapped_offset:mapped_offset + size]
+                        )
+                        if decoded is not None:
+                            current_object["direction"] = decoded
+                    elif ident in rotation_attrs and size <= 4:
+                        current_object["rotation"] = _u32(
+                            mapped[mapped_offset:mapped_offset + size]
+                        )
 
     owner_by_area = {
-        a["area_id"]: a.get("owner_id") for a in area_infos if "area_id" in a
+        area["area_id"]: area.get("owner_id")
+        for area in area_infos
+        if "area_id" in area
     }
-    player_area_ids = sorted(a for a, owner in owner_by_area.items() if owner == 0)
+    player_area_ids = sorted(
+        area_id for area_id, owner in owner_by_area.items() if owner == 0
+    )
     player_set = set(player_area_ids)
 
-    # Building is the common component; include specialist markers for semantic classification.
     player_buildings = []
     for obj in all_objects:
-        if obj["area_id"] not in player_set: continue
-        comps = set(obj["components"])
-        if "Building" not in comps and not comps.intersection({"Residence7", "Factory7", "Warehouse", "BuildingModule"}):
+        if obj["area_id"] not in player_set:
             continue
-        obj["components"] = sorted(comps)
+        components = set(obj["components"])
+        if "Building" not in components and not components.intersection(
+            {"Residence7", "Factory7", "Warehouse", "BuildingModule"}
+        ):
+            continue
+        obj["components"] = sorted(components)
         player_buildings.append(obj)
+
+    buildings_by_area = {area_id: [] for area_id in player_area_ids}
+    for obj in player_buildings:
+        buildings_by_area[obj["area_id"]].append(obj)
+    info_by_area = {
+        area["area_id"]: area for area in area_infos if "area_id" in area
+    }
 
     area_summaries = {}
     for area_id in player_area_ids:
-        objs = [o for o in player_buildings if o["area_id"] == area_id]
+        objs = buildings_by_area[area_id]
         kinds = Counter()
         guids = Counter()
-        for o in objs:
-            guids[o["guid"]] += 1
-            comps = set(o["components"])
-            if "Residence7" in comps: kinds["residence"] += 1
-            if "Factory7" in comps: kinds["factory"] += 1
-            if "Warehouse" in comps: kinds["warehouse"] += 1
-            if "BuildingModule" in comps: kinds["module"] += 1
-            if "Building" in comps: kinds["building"] += 1
-        info = next((a for a in area_infos if a.get("area_id") == area_id), {})
+        for obj in objs:
+            guids[obj["guid"]] += 1
+            components = set(obj["components"])
+            if "Residence7" in components:
+                kinds["residence"] += 1
+            if "Factory7" in components:
+                kinds["factory"] += 1
+            if "Warehouse" in components:
+                kinds["warehouse"] += 1
+            if "BuildingModule" in components:
+                kinds["module"] += 1
+            if "Building" in components:
+                kinds["building"] += 1
+        info = info_by_area.get(area_id, {})
         area_summaries[str(area_id)] = {
             "owner_id": 0,
             "city_name_guid": info.get("CityNameGuid"),
             "city_name_iterator": info.get("CityNameIterator"),
             "building_objects": len(objs),
             "kind_counts": dict(kinds),
-            "guid_counts": {str(k): v for k, v in sorted(guids.items())},
+            "guid_counts": {str(key): value for key, value in sorted(guids.items())},
         }
 
     return {
@@ -636,7 +879,6 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
         "player_buildings": player_buildings,
         "total_game_objects": len(all_objects),
     }
-
 
 def _canonical_building(obj: dict) -> dict:
     building = {
@@ -746,17 +988,17 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
     if progress is not None:
         progress.say(f"  [data] ready: {uncompressed / 1048576:.1f} MiB FileDB state")
 
-    session_dir = work_dir / "sessions"
     if progress is not None:
         progress.say("  [sessions] locating embedded GameSessions")
-    descriptors = extract_sessions(data_bin, session_dir, progress)
+    descriptors = extract_sessions(data_bin, None, progress)
     if progress is not None:
         total_mb = sum(d.get("binary_size", 0) for d in descriptors) / 1048576
         progress.say(f"  [sessions] found {len(descriptors)} session blobs ({total_mb:.1f} MiB total)")
 
     parsed_sessions = []
     for session_index, d in enumerate(descriptors, 1):
-        session_path = Path(d.pop("binary_path"))
+        binary_offset = d.pop("binary_offset")
+        binary_size = d["binary_size"]
         label_bits = []
         if d.get("guid") is not None:
             label_bits.append(f"guid={d['guid']}")
@@ -768,9 +1010,14 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
         if progress is not None:
             progress.say(
                 f"  [session {session_index}/{len(descriptors)}] {label} "
-                f"({session_path.stat().st_size / 1048576:.1f} MiB)"
+                f"({binary_size / 1048576:.1f} MiB)"
             )
-        parsed = parse_session(session_path, progress)
+        parsed = parse_session(
+            data_bin,
+            progress,
+            base_offset=binary_offset,
+            blob_size=binary_size,
+        )
         parsed_sessions.append({**d, **parsed})
         if progress is not None:
             progress.say(
