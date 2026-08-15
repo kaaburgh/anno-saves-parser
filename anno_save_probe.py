@@ -155,7 +155,10 @@ class Progress:
 
     def _fit_live_line(self, message: str) -> str:
         """Prevent live output from wrapping and breaking cursor accounting."""
-        message = message.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+        message = "".join(
+            " " if unicodedata.category(char).startswith("C") else char
+            for char in message
+        )
         columns = self.terminal_width
         if columns is None:
             columns = shutil.get_terminal_size(fallback=(120, 24)).columns
