@@ -15,7 +15,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - parse RDA → zlib → FileDB v3 without external executables or Python packages;
 - extract session/player-area building objects into compressed canonical JSON using explicit schema v1;
 - preserve stable object identity, GUID/components, and observed transform state while excluding parser/container diagnostics from the canonical contract;
-- compare consecutive canonical v1 snapshots;
+- compare consecutive canonical v1 snapshots, including independent raw GUID, movement, component, and `Direction` mutations for stable objects;
 - always report total structural-diff elapsed time, with optional `--timings` output for each adjacent save pair;
 - emit immediate progress plus ~1-second heartbeats during long operations;
 - keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, CI, and terminals without usable cursor-control support.

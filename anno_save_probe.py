@@ -28,7 +28,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 CANONICAL_SCHEMA = "anno-saves-parser/canonical-state"
 CANONICAL_SCHEMA_VERSION = 1
@@ -1104,7 +1104,7 @@ def diff_states(prev: dict, curr: dict) -> dict:
                 "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
     added=[compact(b[k]) for k in sorted(added_keys, key=building_key_sort)]
     removed=[compact(a[k]) for k in sorted(removed_keys, key=building_key_sort)]
-    moved=[]; changed=[]; guid_changed=[]
+    moved=[]; changed=[]; guid_changed=[]; direction_changed=[]
     for k in sorted(common, key=building_key_sort):
         sa, oa = a[k]; sb, ob = b[k]
         if oa.get("guid") != ob.get("guid"):
@@ -1120,6 +1120,17 @@ def diff_states(prev: dict, curr: dict) -> dict:
         if oa.get("position") != ob.get("position"):
             moved.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
                           "from":oa.get("position"),"to":ob.get("position"),"components":ob.get("components",[])})
+        if oa.get("direction") != ob.get("direction"):
+            direction_changed.append({
+                "session_guid": sb.get("session_guid"),
+                "session_id": sb.get("session_id"),
+                "area_id": ob["area_id"],
+                "id": ob["id"],
+                "guid": ob["guid"],
+                "from_direction": oa.get("direction"),
+                "to_direction": ob.get("direction"),
+                "components": ob.get("components", []),
+            })
         if oa.get("components") != ob.get("components"):
             changed.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
                             "from_components":oa.get("components",[]),"to_components":ob.get("components",[])})
@@ -1127,10 +1138,11 @@ def diff_states(prev: dict, curr: dict) -> dict:
     return {
         "from":prev["source"]["save_name"],"to":curr["source"]["save_name"],
         "added_count":len(added),"removed_count":len(removed),"moved_count":len(moved),"component_changed_count":len(changed),
-        "guid_changed_count":len(guid_changed),
+        "guid_changed_count":len(guid_changed),"direction_changed_count":len(direction_changed),
         "added_by_guid":{str(k):v for k,v in sorted(by_guid_add.items())},
         "removed_by_guid":{str(k):v for k,v in sorted(by_guid_remove.items())},
         "added":added,"removed":removed,"moved":moved,"component_changed":changed,"guid_changed":guid_changed,
+        "direction_changed":direction_changed,
     }
 
 
@@ -1483,7 +1495,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         print(
             f"  {d['from']} -> {d['to']}: +{d['added_count']} -{d['removed_count']} "
             f"moved={d['moved_count']} changed={d['component_changed_count']} "
-            f"guid_changed={d['guid_changed_count']}"
+            f"guid_changed={d['guid_changed_count']} direction_changed={d['direction_changed_count']}"
         )
 
 
