@@ -59,6 +59,10 @@ class TerminalEdgeCaseTests(unittest.TestCase):
         self.assertEqual(text.count(probe.Progress.CURSOR_UP), 2)
         self.assertTrue(text.endswith("[parse 1/1] done\n"))
 
+    def test_physical_rows_account_for_wide_glyph_wrap_padding(self):
+        self.assertEqual(probe.Progress._physical_rows("abc界abc", 4), 3)
+        self.assertEqual(probe.Progress._physical_rows("abcdefgh", 4), 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
