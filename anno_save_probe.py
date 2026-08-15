@@ -12,12 +12,14 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import re
 import shutil
 import struct
 import sys
 import tempfile
 import time
+import unicodedata
 import zlib
 from collections import Counter
 from datetime import date, datetime
@@ -39,8 +41,42 @@ INTERESTING_COMPONENTS = {
 }
 
 
+def _enable_windows_vt(stream) -> bool:
+    """Enable and verify Windows virtual-terminal processing for a console stream."""
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        import msvcrt
+
+        handle = msvcrt.get_osfhandle(stream.fileno())
+        if handle == -1:
+            return False
+        kernel32 = ctypes.windll.kernel32
+        mode = ctypes.c_uint()
+        if not kernel32.GetConsoleMode(ctypes.c_void_p(handle), ctypes.byref(mode)):
+            return False
+        vt_flag = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        if not mode.value & vt_flag:
+            if not kernel32.SetConsoleMode(ctypes.c_void_p(handle), mode.value | vt_flag):
+                return False
+            verified = ctypes.c_uint()
+            if not kernel32.GetConsoleMode(ctypes.c_void_p(handle), ctypes.byref(verified)):
+                return False
+            return bool(verified.value & vt_flag)
+        return True
+    except (AttributeError, ImportError, OSError, ValueError):
+        return False
+
+
+def _supports_in_place_rendering(stream) -> bool:
+    if not bool(getattr(stream, "isatty", lambda: False)()):
+        return False
+    return _enable_windows_vt(stream)
+
+
 class Progress:
-    """CLI progress reporter with in-place per-save rendering on interactive TTYs."""
+    """CLI progress reporter with in-place per-save rendering when the TTY supports it."""
 
     CLEAR_LINE = "\r\x1b[2K"
     CURSOR_UP = "\x1b[1A"
@@ -54,11 +90,27 @@ class Progress:
     ):
         self.interval = interval
         self.stream = stream if stream is not None else sys.stdout
-        detected_tty = bool(getattr(self.stream, "isatty", lambda: False)())
-        self.interactive = detected_tty if interactive is None else interactive
+        self.interactive = (
+            _supports_in_place_rendering(self.stream)
+            if interactive is None
+            else interactive
+        )
         self.terminal_width = terminal_width
         self.last_emit = 0.0
         self._parse_active = False
+
+    @staticmethod
+    def _cell_width(char: str) -> int:
+        if char == "\t":
+            return 4
+        category = unicodedata.category(char)
+        if category.startswith("C") or unicodedata.combining(char):
+            return 0
+        return 2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1
+
+    @classmethod
+    def _display_width(cls, text: str) -> int:
+        return sum(cls._cell_width(char) for char in text)
 
     def _write_line(self, message: str) -> None:
         self.stream.write(f"{message}\n")
@@ -71,14 +123,32 @@ class Progress:
         if columns is None:
             columns = shutil.get_terminal_size(fallback=(120, 24)).columns
         width = max(int(columns) - 1, 1)
-        if len(message) <= width:
+        if self._display_width(message) <= width:
             return message
-        if width == 1:
-            return "…"
-        return f"{message[:width - 1]}…"
+
+        suffix = "..."
+        if width <= len(suffix):
+            return "." * width
+        budget = width - len(suffix)
+        out = []
+        used = 0
+        for char in message:
+            char_width = self._cell_width(char)
+            if used + char_width > budget:
+                break
+            out.append(char)
+            used += char_width
+        return "".join(out) + suffix
 
     def _render_detail(self, message: str) -> None:
         self.stream.write(f"{self.CLEAR_LINE}{self._fit_live_line(message)}")
+        self.stream.flush()
+
+    def _replace_parse_block(self, summary: str) -> None:
+        self.stream.write(
+            f"{self.CLEAR_LINE}{self.CURSOR_UP}{self.CLEAR_LINE}"
+            f"{self._fit_live_line(summary)}\n"
+        )
         self.stream.flush()
 
     def say(self, message: str) -> None:
@@ -102,7 +172,6 @@ class Progress:
             raise RuntimeError("a parse progress block is already active")
         self._parse_active = True
         if self.interactive:
-            # The newline reserves exactly one physical line for the live detail below.
             self._write_line(self._fit_live_line(header))
         else:
             self._write_line(header)
@@ -113,13 +182,18 @@ class Progress:
             self.say(summary)
             return
         if self.interactive:
-            # Cursor is on the live detail line. Clear it, replace the header above
-            # with the completion summary, and leave the cursor on the next line.
-            self.stream.write(
-                f"{self.CLEAR_LINE}{self.CURSOR_UP}{self.CLEAR_LINE}"
-                f"{self._fit_live_line(summary)}\n"
-            )
-            self.stream.flush()
+            self._replace_parse_block(summary)
+        else:
+            self._write_line(summary)
+        self._parse_active = False
+        self.last_emit = time.monotonic()
+
+    def abort_parse(self, summary: str) -> None:
+        """Close the live block cleanly before an exception is re-raised."""
+        if not self._parse_active:
+            return
+        if self.interactive:
+            self._replace_parse_block(summary)
         else:
             self._write_line(summary)
         self._parse_active = False
@@ -825,14 +899,20 @@ def main(argv: Optional[list[str]] = None) -> None:
     for i, save in enumerate(saves, 1):
         file_started = time.monotonic()
         progress.begin_parse(f"[parse {i}/{len(saves)}] {save.name}")
-        with tempfile.TemporaryDirectory(prefix="anno-save-probe-") as td:
-            state = canonicalize_save(save, Path(td), progress)
-        states.append(state)
-        stem = save.stem.replace(" ", "_")
-        canonical_path = args.output / f"{stem}.canonical.json.gz"
-        progress.say(f"  [write] {canonical_path.name}")
-        with gzip.open(canonical_path, "wt", encoding="utf8") as f:
-            json.dump(state, f, separators=(",", ":"))
+        try:
+            with tempfile.TemporaryDirectory(prefix="anno-save-probe-") as td:
+                state = canonicalize_save(save, Path(td), progress)
+            states.append(state)
+            stem = save.stem.replace(" ", "_")
+            canonical_path = args.output / f"{stem}.canonical.json.gz"
+            progress.say(f"  [write] {canonical_path.name}")
+            with gzip.open(canonical_path, "wt", encoding="utf8") as f:
+                json.dump(state, f, separators=(",", ":"))
+        except BaseException as exc:
+            progress.abort_parse(
+                f"[parse {i}/{len(saves)}] failed: {type(exc).__name__}: {exc}"
+            )
+            raise
         elapsed = time.monotonic() - file_started
         progress.finish_parse(
             f"[parse {i}/{len(saves)}] done in {elapsed:.1f}s: "
