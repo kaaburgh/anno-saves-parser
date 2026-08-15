@@ -99,7 +99,7 @@ Direct inspection of private FileDB/BBDom v3 session data established the transf
 
 Across multiple consecutive private-save pairs, `Position` was present on every canonical player-building object inspected across all observed sessions. At least one stable object identity also changed `Position` between consecutive saves while remaining the same object, validating that the existing raw `moved` event can represent an observed transform change without manufacturing add/remove lifecycle noise.
 
-`Direction` is canonical object state but is not yet a dedicated structural-diff event. A later schema/semantic task may decide whether orientation changes need their own event type.
+`Direction` remains semantic-neutral raw object state. Structural diffs emit a deterministic `direction_changed` event when the value changes for a stable object identity, including present↔absent transitions as explicit `null` on the missing side. Direction changes stay orthogonal to GUID, movement, and component events; the parser does not label them as gameplay rotation.
 
 ## Why five-minute autosaves are promising
 

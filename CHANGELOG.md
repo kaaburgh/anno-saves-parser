@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.3.3 — 2026-08-15
+
+- Emit deterministic `direction_changed` structural-diff events for stable building identities whose canonical `Direction` value changes.
+- Preserve present↔absent Direction transitions explicitly as `null` on the missing side without assigning gameplay rotation semantics.
+- Keep Direction changes orthogonal to GUID, movement, and component changes, and expose their count in the CLI pair summary.
+- Add synthetic coverage for direction-only mutations, coexistence, absence transitions, ordering, fallback session identity, unchanged values, and CLI reporting.
+
 ## 0.3.2 — 2026-08-15
 
 - Reduce the dominant serial FileDB traversal cost by resolving relevant numeric tag/attribute IDs once per blob and scanning bounded session data with stdlib `mmap`.
