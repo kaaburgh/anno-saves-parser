@@ -13,7 +13,9 @@ import argparse
 import gzip
 import json
 import re
+import shutil
 import struct
+import sys
 import tempfile
 import time
 import zlib
@@ -23,7 +25,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 RDA_MAGIC = b"Resource File V2.2"
 BBDOM_V3_MAGIC = bytes.fromhex("08000000fdffffff")
@@ -38,21 +40,90 @@ INTERESTING_COMPONENTS = {
 
 
 class Progress:
-    """Dependency-free CLI progress reporter with roughly one-second heartbeats."""
+    """CLI progress reporter with in-place per-save rendering on interactive TTYs."""
 
-    def __init__(self, interval: float = 1.0):
+    CLEAR_LINE = "\r\x1b[2K"
+    CURSOR_UP = "\x1b[1A"
+
+    def __init__(
+        self,
+        interval: float = 1.0,
+        stream=None,
+        interactive: Optional[bool] = None,
+        terminal_width: Optional[int] = None,
+    ):
         self.interval = interval
+        self.stream = stream if stream is not None else sys.stdout
+        detected_tty = bool(getattr(self.stream, "isatty", lambda: False)())
+        self.interactive = detected_tty if interactive is None else interactive
+        self.terminal_width = terminal_width
         self.last_emit = 0.0
+        self._parse_active = False
+
+    def _write_line(self, message: str) -> None:
+        self.stream.write(f"{message}\n")
+        self.stream.flush()
+
+    def _fit_live_line(self, message: str) -> str:
+        """Prevent live output from wrapping and breaking cursor accounting."""
+        message = message.replace("\r", " ").replace("\n", " ")
+        columns = self.terminal_width
+        if columns is None:
+            columns = shutil.get_terminal_size(fallback=(120, 24)).columns
+        width = max(int(columns) - 1, 1)
+        if len(message) <= width:
+            return message
+        if width == 1:
+            return "…"
+        return f"{message[:width - 1]}…"
+
+    def _render_detail(self, message: str) -> None:
+        self.stream.write(f"{self.CLEAR_LINE}{self._fit_live_line(message)}")
+        self.stream.flush()
 
     def say(self, message: str) -> None:
-        print(message, flush=True)
+        if self.interactive and self._parse_active:
+            self._render_detail(message)
+        else:
+            self._write_line(message)
         self.last_emit = time.monotonic()
 
     def maybe(self, message: str) -> None:
         now = time.monotonic()
         if now - self.last_emit >= self.interval:
-            print(message, flush=True)
+            if self.interactive and self._parse_active:
+                self._render_detail(message)
+            else:
+                self._write_line(message)
             self.last_emit = now
+
+    def begin_parse(self, header: str) -> None:
+        if self._parse_active:
+            raise RuntimeError("a parse progress block is already active")
+        self._parse_active = True
+        if self.interactive:
+            # The newline reserves exactly one physical line for the live detail below.
+            self._write_line(self._fit_live_line(header))
+        else:
+            self._write_line(header)
+        self.last_emit = time.monotonic()
+
+    def finish_parse(self, summary: str) -> None:
+        if not self._parse_active:
+            self.say(summary)
+            return
+        if self.interactive:
+            # Cursor is on the live detail line. Clear it, replace the header above
+            # with the completion summary, and leave the cursor on the next line.
+            self.stream.write(
+                f"{self.CLEAR_LINE}{self.CURSOR_UP}{self.CLEAR_LINE}"
+                f"{self._fit_live_line(summary)}\n"
+            )
+            self.stream.flush()
+        else:
+            self._write_line(summary)
+        self._parse_active = False
+        self.last_emit = time.monotonic()
 
 
 SAVE_META_CACHE: dict[Path, dict] = {}
@@ -753,7 +824,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     states = []
     for i, save in enumerate(saves, 1):
         file_started = time.monotonic()
-        progress.say(f"[parse {i}/{len(saves)}] {save.name}")
+        progress.begin_parse(f"[parse {i}/{len(saves)}] {save.name}")
         with tempfile.TemporaryDirectory(prefix="anno-save-probe-") as td:
             state = canonicalize_save(save, Path(td), progress)
         states.append(state)
@@ -763,7 +834,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         with gzip.open(canonical_path, "wt", encoding="utf8") as f:
             json.dump(state, f, separators=(",", ":"))
         elapsed = time.monotonic() - file_started
-        progress.say(
+        progress.finish_parse(
             f"[parse {i}/{len(saves)}] done in {elapsed:.1f}s: "
             f"sessions={len(state['sessions'])} "
             f"player_buildings={sum(len(s['player_buildings']) for s in state['sessions']):,}"
