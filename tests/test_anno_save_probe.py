@@ -99,7 +99,7 @@ class ProgressTests(unittest.TestCase):
 
     def test_interactive_parse_rewrites_one_live_detail_line(self):
         stream = FakeTTY()
-        progress = probe.Progress(stream=stream, terminal_width=120)
+        progress = probe.Progress(stream=stream, interactive=True, terminal_width=120)
 
         progress.begin_parse("[parse 6/55] Autosave 669.a7s")
         progress.say("  [rda] reading archive directory (10.28 MiB)")
@@ -150,7 +150,7 @@ class ProgressTests(unittest.TestCase):
 
     def test_interactive_live_lines_are_truncated_before_terminal_wrap(self):
         stream = FakeTTY()
-        progress = probe.Progress(stream=stream, terminal_width=20)
+        progress = probe.Progress(stream=stream, interactive=True, terminal_width=20)
 
         progress.begin_parse("[parse 1/2] Autosave 711.a7s")
         progress.say("  [session] map=data/a/very/long/path.a7t")
@@ -165,7 +165,7 @@ class ProgressTests(unittest.TestCase):
 
     def test_wide_characters_are_truncated_by_terminal_cells(self):
         stream = FakeTTY()
-        progress = probe.Progress(stream=stream, terminal_width=10)
+        progress = probe.Progress(stream=stream, interactive=True, terminal_width=10)
 
         progress.begin_parse("[p]")
         progress.say("界界界界界")
