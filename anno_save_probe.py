@@ -1494,9 +1494,29 @@ def _canonicalize_worker(save_path: str) -> tuple[dict, float]:
     return state, time.monotonic() - started
 
 
-def _write_canonical_state(save: Path, state: dict, output: Path) -> Path:
+def canonical_output_filename(save: Path) -> str:
+    """Return the stable canonical snapshot filename for one source save."""
     stem = save.stem.replace(" ", "_")
-    canonical_path = output / f"{stem}.canonical.json.gz"
+    return f"{stem}.canonical.json.gz"
+
+
+def validate_canonical_output_names(saves: list[Path]) -> None:
+    """Reject batches whose selected saves would overwrite one canonical snapshot."""
+    seen: dict[str, Path] = {}
+    for save in saves:
+        filename = canonical_output_filename(save)
+        key = os.path.normcase(filename)
+        previous = seen.get(key)
+        if previous is not None:
+            raise ValueError(
+                "selected saves map to the same canonical output filename "
+                f"{filename!r}: {previous} and {save}"
+            )
+        seen[key] = save
+
+
+def _write_canonical_state(save: Path, state: dict, output: Path) -> Path:
+    canonical_path = output / canonical_output_filename(save)
     with gzip.open(canonical_path, "wt", encoding="utf8") as f:
         json.dump(state, f, separators=(",", ":"))
     return canonical_path
@@ -1614,6 +1634,7 @@ def parse_saves_batch(
     progress: Progress,
     workers: int,
 ) -> list[dict]:
+    validate_canonical_output_names(saves)
     if workers == 1:
         return parse_saves_serial(saves, output, progress)
     return parse_saves_parallel(saves, output, progress, workers)
@@ -1721,6 +1742,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     progress.say(f"[output] {args.output.resolve()}")
     try:
         active_workers = resolve_worker_count(args.workers, len(saves))
+        validate_canonical_output_names(saves)
     except ValueError as exc:
         ap.error(str(exc))
     report_worker_plan(args.workers, active_workers, progress)
