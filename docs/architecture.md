@@ -66,7 +66,7 @@ Direct inspection of private FileDB/BBDom v3 session data established the transf
 
 `Position` is decoded only for the observed 12-byte representation and stored as the three float32 values promoted to Python floats. Unsupported sizes remain absent rather than being reinterpreted heuristically. `Direction` is likewise decoded only from the observed 4-byte float32 representation. The parser does not label the axes, infer map/grid units, or assign orientation semantics beyond preserving the decoded raw values.
 
-Coverage checks on private saves found `Position` on every canonical player-building object in the tested 686/687 pair and independently on every canonical player-building object in 711/712 across all five sessions. Consecutive 711→712 also contains a stable-ID warehouse object with exactly one changed `Position`, validating that the existing raw `moved` event can represent an observed transform change without manufacturing add/remove lifecycle noise.
+Across multiple consecutive private-save pairs, `Position` was present on every canonical player-building object inspected across all observed sessions. At least one stable object identity also changed `Position` between consecutive saves while remaining the same object, validating that the existing raw `moved` event can represent an observed transform change without manufacturing add/remove lifecycle noise.
 
 `Direction` is canonical object state but is not yet a dedicated structural-diff event. A later schema/semantic task may decide whether orientation changes need their own event type.
 
