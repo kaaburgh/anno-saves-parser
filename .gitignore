@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Proprietary Anno saves and extracted data
+*.a7s
+*.rda
+*.filedb
+
+# Parser outputs / local experiments
+*.canonical.json
+*.canonical.json.gz
+summary.json
+output/
+out/
+results/
+*_l[0-9]*/
+integration_*/
+
+# Portable Python runtime if unpacked beside the CLI
+python/
+python3*/
