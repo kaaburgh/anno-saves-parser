@@ -1505,7 +1505,10 @@ def validate_canonical_output_names(saves: list[Path]) -> None:
     seen: dict[str, Path] = {}
     for save in saves:
         filename = canonical_output_filename(save)
-        key = os.path.normcase(filename)
+        # Compare independently of the host OS: the output directory may live on
+        # a case-insensitive or Unicode-normalizing volume even when Python itself is
+        # running on POSIX. Rejecting conservatively is safer than silent overwrite.
+        key = unicodedata.normalize("NFC", filename).casefold()
         previous = seen.get(key)
         if previous is not None:
             raise ValueError(
