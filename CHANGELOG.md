@@ -2,12 +2,18 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-08-15
+
+- Define canonical state schema v1 (`anno-saves-parser/canonical-state`, version `1`) as the stable downstream boundary for per-save `.canonical.json.gz` output.
+- Normalize session, player-area, building and component ordering deterministically while preserving stable identity and conservative optional-field absence.
+- Exclude container/parser diagnostics and recomputable area summaries from canonical state; keep compact `summary.json` projections explicitly distinct from full canonical documents.
+- Make raw structural diffs consume canonical v1 states and reject the legacy pre-v1 prototype shape.
 - Expose stable-object asset GUID mutations in structural diffs as deterministic `guid_changed` events with previous/current GUIDs and stable identity.
 - Keep GUID changes semantic-neutral and orthogonal to additions/removals, movement, and component changes.
-- Add synthetic regression coverage for GUID-only mutations, deterministic ordering, unchanged GUIDs, and coexisting component changes.
 - Decode observed root-level player-building `Position` as a 12-byte little-endian float32 triple so canonical snapshots carry real transform data and existing `moved` diffs become observable.
 - Preserve observed root-level `Direction` as a 4-byte float32 value when present, without assigning orientation semantics.
-- Reject unsupported transform attribute sizes conservatively and add synthetic movement/decoding regression coverage.
+- Reject unsupported transform attribute sizes conservatively.
+- Add synthetic regression coverage for canonical v1 shape/determinism, batch-summary boundaries, GUID mutations, movement and transform decoding.
 
 ## 0.2.1 — 2026-08-15
 
