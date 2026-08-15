@@ -1,0 +1,5 @@
+[project]
+name = "anno-saves-parser"
+version = "0.2.0"
+description = "Dependency-free Anno 1800 save parser and canonical diff probe"
+requires-python = ">=3.11"
