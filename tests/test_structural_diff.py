@@ -1,0 +1,116 @@
+import unittest
+
+import anno_save_probe as probe
+
+
+def state(source, objects, session_guid=110934, session_id=6):
+    return {
+        "source": source,
+        "sessions": [
+            {
+                "guid": session_guid,
+                "id": session_id,
+                "player_buildings": objects,
+            }
+        ],
+    }
+
+
+def building(object_id, guid, area_id=8262, components=None, position=None):
+    obj = {
+        "id": object_id,
+        "guid": guid,
+        "area_id": area_id,
+        "components": components or ["Building", "LogisticNode", "Residence7"],
+    }
+    if position is not None:
+        obj["position"] = position
+    return obj
+
+
+class StructuralDiffGuidChangeTests(unittest.TestCase):
+    def test_guid_only_change_is_one_mutation_without_add_remove_noise(self):
+        prev = state("Autosave 686.a7s", [building(35485019801265, 1010345)])
+        curr = state("Autosave 687.a7s", [building(35485019801265, 1010346)])
+
+        diff = probe.diff_states(prev, curr)
+
+        self.assertEqual(diff["added_count"], 0)
+        self.assertEqual(diff["removed_count"], 0)
+        self.assertEqual(diff["moved_count"], 0)
+        self.assertEqual(diff["component_changed_count"], 0)
+        self.assertEqual(diff["guid_changed_count"], 1)
+        self.assertEqual(
+            diff["guid_changed"],
+            [
+                {
+                    "session_guid": 110934,
+                    "session_id": 6,
+                    "area_id": 8262,
+                    "id": 35485019801265,
+                    "from_guid": 1010345,
+                    "to_guid": 1010346,
+                    "components": ["Building", "LogisticNode", "Residence7"],
+                }
+            ],
+        )
+
+    def test_multiple_guid_changes_are_sorted_by_stable_object_key(self):
+        prev = state(
+            "before.a7s",
+            [
+                building(30, 300, area_id=9000),
+                building(20, 200, area_id=8000),
+                building(10, 100, area_id=8000),
+            ],
+        )
+        curr = state(
+            "after.a7s",
+            [
+                building(10, 101, area_id=8000),
+                building(30, 301, area_id=9000),
+                building(20, 201, area_id=8000),
+            ],
+        )
+
+        diff = probe.diff_states(prev, curr)
+
+        self.assertEqual(diff["guid_changed_count"], 3)
+        self.assertEqual(
+            [(e["area_id"], e["id"]) for e in diff["guid_changed"]],
+            [(8000, 10), (8000, 20), (9000, 30)],
+        )
+        self.assertEqual(
+            [(e["from_guid"], e["to_guid"]) for e in diff["guid_changed"]],
+            [(100, 101), (200, 201), (300, 301)],
+        )
+
+    def test_unchanged_guid_does_not_emit_event(self):
+        prev = state("before.a7s", [building(1, 1010344)])
+        curr = state("after.a7s", [building(1, 1010344)])
+
+        diff = probe.diff_states(prev, curr)
+
+        self.assertEqual(diff["guid_changed_count"], 0)
+        self.assertEqual(diff["guid_changed"], [])
+
+    def test_guid_change_remains_orthogonal_to_component_change(self):
+        prev = state(
+            "before.a7s",
+            [building(1, 1010344, components=["Building", "Residence7"])],
+        )
+        curr = state(
+            "after.a7s",
+            [building(1, 1010345, components=["Building", "LogisticNode", "Residence7"])],
+        )
+
+        diff = probe.diff_states(prev, curr)
+
+        self.assertEqual(diff["guid_changed_count"], 1)
+        self.assertEqual(diff["component_changed_count"], 1)
+        self.assertEqual(diff["added_count"], 0)
+        self.assertEqual(diff["removed_count"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
