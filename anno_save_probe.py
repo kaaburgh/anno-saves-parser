@@ -320,14 +320,20 @@ def _decode_position(raw: bytes) -> Optional[list[float]]:
     """Decode the observed root GameObject Position encoding conservatively."""
     if len(raw) != 12:
         return None
-    return list(struct.unpack("<fff", raw))
+    values = struct.unpack("<fff", raw)
+    if not all(float("-inf") < value < float("inf") for value in values):
+        return None
+    return list(values)
 
 
 def _decode_direction(raw: bytes) -> Optional[float]:
     """Decode the observed root GameObject Direction encoding conservatively."""
     if len(raw) != 4:
         return None
-    return struct.unpack("<f", raw)[0]
+    value = struct.unpack("<f", raw)[0]
+    if not float("-inf") < value < float("inf"):
+        return None
+    return value
 
 
 def rda_entries(path: Path) -> list[dict]:
