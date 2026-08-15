@@ -153,6 +153,45 @@ class CanonicalSchemaV1Tests(unittest.TestCase):
             probe.build_canonical_state("same.a7s", second),
         )
 
+    def test_session_identity_ties_are_ordered_by_canonical_state_not_extraction_order(self):
+        first_session = {
+            "player_area_ids": [20],
+            "areas": {"20": {"owner_id": 0}},
+            "player_buildings": [
+                {
+                    "area_id": 20,
+                    "id": 2,
+                    "guid": 200,
+                    "components": ["Building"],
+                }
+            ],
+        }
+        second_session = {
+            "player_area_ids": [10],
+            "areas": {"10": {"owner_id": 0}},
+            "player_buildings": [
+                {
+                    "area_id": 10,
+                    "id": 1,
+                    "guid": 100,
+                    "components": ["Building"],
+                }
+            ],
+        }
+
+        forward = probe.build_canonical_state(
+            "same.a7s", [first_session, second_session]
+        )
+        reversed_input = probe.build_canonical_state(
+            "same.a7s", [second_session, first_session]
+        )
+
+        self.assertEqual(forward, reversed_input)
+        self.assertEqual(
+            [session["player_areas"][0]["area_id"] for session in forward["sessions"]],
+            [10, 20],
+        )
+
     def test_missing_optional_fields_remain_absent_while_session_identity_is_explicit(self):
         state = probe.build_canonical_state(
             "minimal.a7s",
