@@ -389,6 +389,56 @@ class StructuralDiffDirectionChangeTests(unittest.TestCase):
         self.assertIsNone(event["session_guid"])
         self.assertEqual(event["session_id"], 7)
 
+    def test_direction_events_preserve_map_for_guidless_session_fallbacks(self):
+        prev = {
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "before.a7s"},
+            "sessions": [
+                {
+                    "session_guid": None,
+                    "session_id": 7,
+                    "map": "maps/a.a7t",
+                    "player_areas": [],
+                    "buildings": [building(1, 5001, direction=1.0)],
+                },
+                {
+                    "session_guid": None,
+                    "session_id": 7,
+                    "map": "maps/b.a7t",
+                    "player_areas": [],
+                    "buildings": [building(1, 5001, direction=3.0)],
+                },
+            ],
+        }
+        curr = {
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "after.a7s"},
+            "sessions": [
+                {
+                    "session_guid": None,
+                    "session_id": 7,
+                    "map": "maps/b.a7t",
+                    "player_areas": [],
+                    "buildings": [building(1, 5001, direction=4.0)],
+                },
+                {
+                    "session_guid": None,
+                    "session_id": 7,
+                    "map": "maps/a.a7t",
+                    "player_areas": [],
+                    "buildings": [building(1, 5001, direction=2.0)],
+                },
+            ],
+        }
+
+        events = probe.diff_states(prev, curr)["direction_changed"]
+
+        self.assertEqual([event["map"] for event in events], ["maps/a.a7t", "maps/b.a7t"])
+        self.assertEqual([event["session_id"] for event in events], [7, 7])
+        self.assertEqual([event["id"] for event in events], [1, 1])
+
     def test_cli_pair_summary_reports_direction_change_count(self):
         saves = [Path("before.a7s"), Path("after.a7s")]
         states = [
