@@ -158,10 +158,60 @@ class ProgressTests(unittest.TestCase):
         writes = stream.getvalue().split(probe.Progress.CLEAR_LINE)
         header = writes[0].rstrip("\n")
         live_detail = writes[-1]
-        self.assertLessEqual(len(header), 19)
-        self.assertLessEqual(len(live_detail), 19)
-        self.assertTrue(header.endswith("…"))
-        self.assertTrue(live_detail.endswith("…"))
+        self.assertLessEqual(probe.Progress._display_width(header), 19)
+        self.assertLessEqual(probe.Progress._display_width(live_detail), 19)
+        self.assertTrue(header.endswith("..."))
+        self.assertTrue(live_detail.endswith("..."))
+
+    def test_wide_characters_are_truncated_by_terminal_cells(self):
+        stream = FakeTTY()
+        progress = probe.Progress(stream=stream, terminal_width=10)
+
+        progress.begin_parse("[p]")
+        progress.say("界界界界界")
+
+        live_detail = stream.getvalue().split(probe.Progress.CLEAR_LINE)[-1]
+        self.assertLessEqual(probe.Progress._display_width(live_detail), 9)
+        self.assertTrue(live_detail.endswith("..."))
+
+    def test_tty_without_in_place_support_falls_back_to_line_logging(self):
+        stream = FakeTTY()
+        with patch.object(probe, "_supports_in_place_rendering", return_value=False):
+            progress = probe.Progress(stream=stream)
+
+        progress.begin_parse("[parse 1/1] Autosave 711.a7s")
+        progress.say("  [data] working")
+        progress.finish_parse("[parse 1/1] done")
+
+        text = stream.getvalue()
+        self.assertNotIn("\x1b", text)
+        self.assertEqual(
+            text.splitlines(),
+            ["[parse 1/1] Autosave 711.a7s", "  [data] working", "[parse 1/1] done"],
+        )
+
+    def test_windows_vt_probe_fails_closed_when_console_mode_is_unavailable(self):
+        with patch.object(probe.os, "name", "nt"):
+            self.assertFalse(probe._enable_windows_vt(FakeTTY()))
+
+    def test_main_aborts_live_parse_cleanly_before_reraising(self):
+        stream = FakeTTY()
+        progress = probe.Progress(stream=stream, interactive=True, terminal_width=120)
+        fake_save = Path("Autosave 711.a7s")
+
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "out"
+            with (
+                patch.object(probe, "Progress", return_value=progress),
+                patch.object(probe, "discover_saves", return_value=[fake_save]),
+                patch.object(probe, "canonicalize_save", side_effect=RuntimeError("broken save")),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "broken save"):
+                    probe.main([str(Path(td)), "-o", str(output)])
+
+        text = stream.getvalue()
+        self.assertIn("[parse 1/1] failed: RuntimeError: broken save", text)
+        self.assertTrue(text.endswith("[parse 1/1] failed: RuntimeError: broken save\n"))
 
 
 if __name__ == "__main__":
