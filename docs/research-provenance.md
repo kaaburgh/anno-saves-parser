@@ -10,14 +10,14 @@ Useful references discovered during feasibility work:
 
 ## Direct-save transform observations
 
-Private user-owned saves were inspected directly for issue #5; no proprietary save or derived dump is committed.
+Private user-owned saves were inspected directly for issue #5; no proprietary save, generated dump, object identifier, or exact player-state value is committed.
 
-Observed facts:
+Observed facts reduced to structural invariants:
 
-- In `Autosave 686.a7s` and `Autosave 687.a7s`, every canonical player-building object across all five sessions has a root-level `Position` attribute with exactly 12 bytes; those bytes decode as three little-endian float32 values (`<fff>`).
-- The same pair exposes root-level `Direction` on a subset of player-building objects as exactly 4 bytes decoding as one little-endian float32 value (`<f>`).
-- Independent inspection of `Autosave 711.a7s` and `Autosave 712.a7s` reproduced complete 12-byte Position coverage: 37,570 / 37,570 and 37,571 / 37,571 canonical player-building objects respectively.
-- `Autosave 711 -> 712` contains one stable object identity `(session_guid=180025, area_id=8836, id=37950331027457, guid=101290)` whose decoded Position changes while identity remains stable, confirming that the raw movement comparison has a real positive case.
+- Canonical player-building objects expose root-level `Position` as exactly 12 bytes decoding as three little-endian float32 values (`<fff>`).
+- The same root structure exposes optional `Direction` as exactly 4 bytes decoding as one little-endian float32 value (`<f>`).
+- The Position representation was observed consistently across multiple consecutive private-save pairs and across all observed sessions.
+- At least one stable object identity changed decoded Position between consecutive saves without becoming an add/remove pair, providing a positive raw movement case.
 
 The decoded values are preserved as raw transform state. Axis names, coordinate-system meaning, map/grid units, and higher-level gameplay interpretation remain intentionally unspecified.
 
