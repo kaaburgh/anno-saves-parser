@@ -1618,10 +1618,32 @@ def parse_saves_parallel(
                 if next_index < total:
                     submit(next_index)
                     next_index += 1
-    except BaseException:
+    except BaseException as exc:
+        # Future.cancel() cannot stop work that is already running. Surface the
+        # failure immediately, then keep the cleanup wait observable instead of
+        # blocking silently inside executor.shutdown(wait=True).
+        cleanup_pending = set()
         for future in futures:
-            future.cancel()
+            if not future.cancel():
+                cleanup_pending.add(future)
+        progress.say(
+            f"[parse] failure detected: {type(exc).__name__}: {exc}; "
+            f"waiting for {len(cleanup_pending)} active worker(s) to exit"
+        )
+        while cleanup_pending:
+            done, cleanup_pending = wait_fn(
+                cleanup_pending,
+                timeout=1.0,
+                return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                progress.maybe(
+                    f"[parse] failure cleanup: waiting for "
+                    f"{len(cleanup_pending)} active worker(s) to exit"
+                )
+        progress.say("[parse] failure cleanup: finalizing worker processes")
         executor.shutdown(wait=True, cancel_futures=True)
+        progress.say("[parse] failure cleanup complete")
         raise
     else:
         executor.shutdown(wait=True)
