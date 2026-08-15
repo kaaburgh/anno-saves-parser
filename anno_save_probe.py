@@ -638,18 +638,6 @@ def parse_session(path: Path, progress: Optional[Progress] = None) -> dict:
     }
 
 
-def _raw_session_sort_key(session: dict) -> tuple:
-    guid = session.get("guid")
-    session_id = session.get("id")
-    return (
-        guid is None,
-        guid if guid is not None else 0,
-        session_id is None,
-        session_id if session_id is not None else 0,
-        session.get("map") or "",
-    )
-
-
 def _canonical_building(obj: dict) -> dict:
     building = {
         "area_id": obj["area_id"],
@@ -664,10 +652,31 @@ def _canonical_building(obj: dict) -> dict:
     return building
 
 
+def _canonical_session_sort_key(session: dict) -> tuple:
+    """Order sessions independently of raw extraction order, even on identity ties."""
+    guid = session.get("session_guid")
+    session_id = session.get("session_id")
+    state_tiebreaker = json.dumps(
+        session,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return (
+        guid is None,
+        guid if guid is not None else 0,
+        session_id is None,
+        session_id if session_id is not None else 0,
+        session.get("map") or "",
+        state_tiebreaker,
+    )
+
+
 def build_canonical_state(source_name: str, parsed_sessions: list[dict]) -> dict:
     """Normalize parser-internal session dictionaries into canonical schema v1."""
     sessions = []
-    for raw in sorted(parsed_sessions, key=_raw_session_sort_key):
+    for raw in parsed_sessions:
         session = {
             "session_guid": raw.get("guid"),
             "session_id": raw.get("id"),
@@ -694,6 +703,7 @@ def build_canonical_state(source_name: str, parsed_sessions: list[dict]) -> dict
         )
         sessions.append(session)
 
+    sessions.sort(key=_canonical_session_sort_key)
     return {
         "schema": CANONICAL_SCHEMA,
         "schema_version": CANONICAL_SCHEMA_VERSION,
