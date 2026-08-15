@@ -30,13 +30,17 @@ class CliContractTests(unittest.TestCase):
         args = probe.parse_cli_args([r"C:\saves", "--list"])
         self.assertTrue(args.list)
 
+    def test_timings_flag_is_accepted(self):
+        args = probe.parse_cli_args([r"C:\saves", "--timings"])
+        self.assertTrue(args.timings)
+
     def test_help_mentions_public_options(self):
         help_text = probe.build_arg_parser().format_help()
-        for option in ("--from", "--limit", "--list", "--output", "--version"):
+        for option in ("--from", "--limit", "--list", "--timings", "--output", "--version"):
             self.assertIn(option, help_text)
 
     def test_version_is_exposed(self):
-        self.assertEqual(probe.__version__, "0.3.0")
+        self.assertEqual(probe.__version__, "0.3.1")
 
 
 class SelectionTests(unittest.TestCase):
@@ -70,6 +74,93 @@ class SelectionTests(unittest.TestCase):
             with patch.object(probe, "cached_save_meta", side_effect=lambda p: {"last_mod_time": ts[p.name]}):
                 found = probe.discover_saves([root])
             self.assertEqual([p.name for p in found], ["Autosave 711.a7s", "Autosave 712.a7s", "Autosave 713.a7s"])
+
+
+class RecordingProgress:
+    def __init__(self):
+        self.messages = []
+
+    def say(self, message):
+        self.messages.append(message)
+
+
+class DiffTimingTests(unittest.TestCase):
+    @staticmethod
+    def _state(name):
+        return {
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": name},
+            "sessions": [],
+        }
+
+    def test_default_reports_total_diff_time_without_per_pair_lines(self):
+        states = [self._state("before.a7s"), self._state("after.a7s")]
+        progress = RecordingProgress()
+
+        with patch.object(probe.time, "monotonic", side_effect=[10.0, 10.1, 12.0]):
+            diffs = probe.build_adjacent_diffs(states, progress)
+
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(
+            progress.messages,
+            [
+                "[diff] comparing 1 adjacent save pair(s)",
+                "[diff] done in 2.0s: 1 pair(s)",
+            ],
+        )
+
+    def test_detailed_timings_reports_each_pair(self):
+        states = [self._state("before.a7s"), self._state("after.a7s")]
+        progress = RecordingProgress()
+
+        with patch.object(
+            probe.time,
+            "monotonic",
+            side_effect=[20.0, 20.2, 20.7, 21.0],
+        ):
+            diffs = probe.build_adjacent_diffs(states, progress, detailed_timings=True)
+
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(
+            progress.messages,
+            [
+                "[diff] comparing 1 adjacent save pair(s)",
+                "  [diff 1/1] before.a7s -> after.a7s: 0.500s",
+                "[diff] done in 1.0s: 1 pair(s)",
+            ],
+        )
+
+    def test_zero_pair_batch_reports_total_without_detail_lines(self):
+        progress = RecordingProgress()
+
+        with patch.object(probe.time, "monotonic", side_effect=[30.0, 30.04]):
+            diffs = probe.build_adjacent_diffs([], progress, detailed_timings=True)
+
+        self.assertEqual(diffs, [])
+        self.assertEqual(
+            progress.messages,
+            [
+                "[diff] comparing 0 adjacent save pair(s)",
+                "[diff] done in 0.0s: 0 pair(s)",
+            ],
+        )
+
+    def test_timing_metadata_is_not_added_to_summary(self):
+        states = [self._state("before.a7s"), self._state("after.a7s")]
+        progress = RecordingProgress()
+
+        with patch.object(
+            probe.time,
+            "monotonic",
+            side_effect=[40.0, 40.1, 40.4, 40.6],
+        ):
+            diffs = probe.build_adjacent_diffs(states, progress, detailed_timings=True)
+
+        summary = probe.build_batch_summary(states, diffs)
+        self.assertEqual(summary["diffs"], diffs)
+        self.assertNotIn("timing", repr(summary).lower())
+        self.assertNotIn("elapsed", repr(summary).lower())
 
 
 class FakeTTY(io.StringIO):
