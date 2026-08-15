@@ -81,7 +81,7 @@ python .\anno_save_probe.py --version
 
 ## Output
 
-For each processed save the CLI writes a compressed **canonical state v1** document, plus a compact `summary.json` batch report:
+For each processed save the CLI writes a compressed **canonical state v1** document, plus a compact `summary.json` batch report. Before parsing starts, the selected batch is rejected if two source saves would map to the same canonical filename (for example because spaces normalize to underscores or two input directories contain the same basename), preventing silent overwrite and completion-order-dependent output:
 
 ```text
 output/
