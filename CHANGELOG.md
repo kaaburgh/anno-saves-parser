@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Expose stable-object asset GUID mutations in structural diffs as deterministic `guid_changed` events with previous/current GUIDs and stable identity.
+- Keep GUID changes semantic-neutral and orthogonal to additions/removals, movement, and component changes.
+- Add synthetic regression coverage for GUID-only mutations, deterministic ordering, unchanged GUIDs, and coexisting component changes.
+
 ## 0.2.1 — 2026-08-15
 
 - Render per-save parse progress in place on interactive terminals: one persistent completion line per save plus one live detail line for the current save.
