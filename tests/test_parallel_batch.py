@@ -90,6 +90,12 @@ class WorkerPolicyTests(unittest.TestCase):
         self.assertEqual(probe.resolve_worker_count(4, 2), 2)
         self.assertEqual(probe.resolve_worker_count(1, 20), 1)
 
+    def test_windows_hard_worker_limit_is_rejected_before_pool_creation(self):
+        with patch.object(probe.os, "name", "nt"):
+            with self.assertRaisesRegex(ValueError, "supports at most 61"):
+                probe.resolve_worker_count(62, 62)
+            self.assertEqual(probe.resolve_worker_count(100, 2), 2)
+
     def test_resource_plan_warns_without_overriding_explicit_workers(self):
         progress = RecordingProgress()
         disk = type("Disk", (), {"free": 100 * 1024 * 1024})()
