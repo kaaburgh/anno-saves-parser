@@ -101,6 +101,9 @@ class Progress:
         self.terminal_width = terminal_width
         self.last_emit = 0.0
         self._parse_active = False
+        self._parse_header = ""
+        self._rendered_header = ""
+        self._rendered_detail = ""
 
     @staticmethod
     def _cell_width(char: str) -> int:
@@ -153,15 +156,20 @@ class Progress:
         self.stream.write(f"{message}\n")
         self.stream.flush()
 
-    def _fit_live_line(self, message: str) -> str:
+    def _terminal_columns(self) -> int:
+        columns = self.terminal_width
+        if columns is None:
+            columns = shutil.get_terminal_size(fallback=(120, 24)).columns
+        return max(int(columns), 1)
+
+    def _fit_live_line(self, message: str, columns: Optional[int] = None) -> str:
         """Prevent live output from wrapping and breaking cursor accounting."""
         message = "".join(
             " " if unicodedata.category(char).startswith("C") else char
             for char in message
         )
-        columns = self.terminal_width
         if columns is None:
-            columns = shutil.get_terminal_size(fallback=(120, 24)).columns
+            columns = self._terminal_columns()
         width = max(int(columns) - 1, 1)
         if self._display_width(message) <= width:
             return message
@@ -179,15 +187,40 @@ class Progress:
             used += cluster_width
         return "".join(out) + suffix
 
+    @classmethod
+    def _physical_rows(cls, text: str, columns: int) -> int:
+        """Rows occupied by previously rendered text after a terminal resize."""
+        if not text:
+            return 1
+        columns = max(int(columns), 1)
+        width = cls._display_width(text)
+        return max((width + columns - 1) // columns, 1)
+
+    def _erase_parse_block(self, columns: int) -> None:
+        """Erase the current header/detail block, accounting for resize reflow."""
+        detail_rows = self._physical_rows(self._rendered_detail, columns)
+        header_rows = self._physical_rows(self._rendered_header, columns)
+
+        self.stream.write(self.CLEAR_LINE)
+        for _ in range(detail_rows - 1):
+            self.stream.write(f"{self.CURSOR_UP}{self.CLEAR_LINE}")
+        for _ in range(header_rows):
+            self.stream.write(f"{self.CURSOR_UP}{self.CLEAR_LINE}")
+
     def _render_detail(self, message: str) -> None:
-        self.stream.write(f"{self.CLEAR_LINE}{self._fit_live_line(message)}")
+        columns = self._terminal_columns()
+        self._erase_parse_block(columns)
+        header = self._fit_live_line(self._parse_header, columns)
+        detail = self._fit_live_line(message, columns)
+        self.stream.write(f"{header}\n{detail}")
         self.stream.flush()
+        self._rendered_header = header
+        self._rendered_detail = detail
 
     def _replace_parse_block(self, summary: str) -> None:
-        self.stream.write(
-            f"{self.CLEAR_LINE}{self.CURSOR_UP}{self.CLEAR_LINE}"
-            f"{self._fit_live_line(summary)}\n"
-        )
+        columns = self._terminal_columns()
+        self._erase_parse_block(columns)
+        self.stream.write(f"{self._fit_live_line(summary, columns)}\n")
         self.stream.flush()
 
     def say(self, message: str) -> None:
@@ -210,10 +243,22 @@ class Progress:
         if self._parse_active:
             raise RuntimeError("a parse progress block is already active")
         self._parse_active = True
+        self._parse_header = header
+        self._rendered_detail = ""
         if self.interactive:
-            self._write_line(self._fit_live_line(header))
+            columns = self._terminal_columns()
+            self._rendered_header = self._fit_live_line(header, columns)
+            self._write_line(self._rendered_header)
         else:
+            self._rendered_header = ""
             self._write_line(header)
+        self.last_emit = time.monotonic()
+
+    def _close_parse(self) -> None:
+        self._parse_active = False
+        self._parse_header = ""
+        self._rendered_header = ""
+        self._rendered_detail = ""
         self.last_emit = time.monotonic()
 
     def finish_parse(self, summary: str) -> None:
@@ -224,8 +269,7 @@ class Progress:
             self._replace_parse_block(summary)
         else:
             self._write_line(summary)
-        self._parse_active = False
-        self.last_emit = time.monotonic()
+        self._close_parse()
 
     def abort_parse(self, summary: str) -> None:
         """Close the live block cleanly before an exception is re-raised."""
@@ -235,8 +279,7 @@ class Progress:
             self._replace_parse_block(summary)
         else:
             self._write_line(summary)
-        self._parse_active = False
-        self.last_emit = time.monotonic()
+        self._close_parse()
 
 
 SAVE_META_CACHE: dict[Path, dict] = {}
