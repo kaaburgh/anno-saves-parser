@@ -11,7 +11,7 @@ The project is intentionally small. Items below are executable chunks rather tha
 Parse current `.a7s` saves through RDA, zlib and FileDB v3; discover/sort autosaves by internal timestamp; support `--from`, `--limit`, `--list`, `-o`, `--version`; produce canonical snapshots and raw structural diffs; keep long stages observable.
 
 ### ASP-P0-2 — Repository baseline and CI
-**Status:** in progress  
+**Status:** done  
 **Depends on:** ASP-P0-1
 
 Commit the prototype, regression tests, agent guidance, architecture notes and cross-platform GitHub Actions.
@@ -19,7 +19,7 @@ Commit the prototype, regression tests, agent guidance, architecture notes and c
 ## P1 — Canonical state
 
 ### ASP-P1-1 — Define canonical schema v1
-**Status:** ready after ASP-P0-2  
+**Status:** ready  
 **Depends on:** ASP-P0-2
 
 Make the canonical schema explicit and versioned. Preserve stable identity, session/area ownership and object/component data while excluding volatile parser-only representation.
