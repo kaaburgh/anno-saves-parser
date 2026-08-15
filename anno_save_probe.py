@@ -1020,7 +1020,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     for d in diffs:
         print(
             f"  {d['from']} -> {d['to']}: +{d['added_count']} -{d['removed_count']} "
-            f"moved={d['moved_count']} changed={d['component_changed_count']}"
+            f"moved={d['moved_count']} changed={d['component_changed_count']} "
+            f"guid_changed={d['guid_changed_count']}"
         )
 
 
