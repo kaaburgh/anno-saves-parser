@@ -828,11 +828,9 @@ def diff_states(prev: dict, curr: dict) -> dict:
 
 
 def strip_objects(state: dict) -> dict:
-    """Compact canonical v1 state for the batch summary without full object lists."""
+    """Build a non-canonical state projection for the batch summary."""
     _require_canonical_v1(state)
     out = {
-        "schema": state["schema"],
-        "schema_version": state["schema_version"],
         "source": dict(state["source"]),
         "sessions": [],
     }
@@ -847,6 +845,20 @@ def strip_objects(state: dict) -> dict:
             q["map"] = s["map"]
         out["sessions"].append(q)
     return out
+
+
+def build_batch_summary(states: list[dict], diffs: list[dict]) -> dict:
+    """Build the batch report without representing projections as canonical states."""
+    for state in states:
+        _require_canonical_v1(state)
+    return {
+        "canonical_schema": {
+            "name": CANONICAL_SCHEMA,
+            "version": CANONICAL_SCHEMA_VERSION,
+        },
+        "states": [strip_objects(state) for state in states],
+        "diffs": diffs,
+    }
 
 
 def read_save_meta(save: Path) -> dict:
@@ -1124,7 +1136,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     diffs = [diff_states(a, b) for a, b in zip(states, states[1:])]
     with (args.output / "summary.json").open("w", encoding="utf8") as f:
         json.dump(
-            {"states": [strip_objects(s) for s in states], "diffs": diffs},
+            build_batch_summary(states, diffs),
             f,
             indent=2,
             ensure_ascii=False,
