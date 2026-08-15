@@ -108,8 +108,8 @@ Each canonical building object contains:
 - `id` — required integer stable object ID as observed in the save;
 - `guid` — required integer asset GUID; this is mutable object state, not part of stable identity;
 - `components` — required array of unique component-tag strings sorted lexicographically;
-- `position` — optional three-element array containing the decoded observed float32 transform values;
-- `direction` — optional number containing the decoded observed float32 value;
+- `position` — optional three-element array containing the decoded observed finite float32 transform values;
+- `direction` — optional number containing the decoded observed finite float32 value;
 - `rotation` — optional integer retained only when the legacy root rotation attribute is observed.
 
 Buildings are sorted by `(area_id, id, guid)` within a session.
@@ -126,7 +126,7 @@ The parser does not assign axis names, map/grid units, orientation semantics, up
 
 ## Optionality and conservative absence
 
-Optional fields are emitted only when the parser has decoded an observed supported representation. Missing or unsupported values are omitted rather than filled with plausible defaults.
+Optional fields are emitted only when the parser has decoded an observed supported representation. Missing or unsupported values are omitted rather than filled with plausible defaults. For float transform fields, IEEE-754 `NaN` and positive/negative infinity are treated as unsupported and omitted before canonical export; canonical v1 therefore exposes only finite `position` / `direction` numbers.
 
 `session_guid` and `session_id` are exceptions: their keys are always present and use JSON `null` when the corresponding observed session descriptor value is absent. Keeping those identity slots explicit makes session comparison rules unambiguous.
 
