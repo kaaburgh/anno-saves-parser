@@ -16,7 +16,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - extract session/player-area building objects into compressed canonical JSON;
 - compare consecutive canonical snapshots;
 - emit immediate progress plus ~1-second heartbeats during long operations;
-- keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, and CI.
+- keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, CI, and terminals without usable cursor-control support.
 
 The canonical model is intentionally incomplete. Population, workforce, inventory, production/demand, trade routes, GUID naming, and semantic episode reconstruction belong to follow-up work.
 
@@ -76,7 +76,7 @@ output/
 
 The parser is read-only with respect to the source save directory.
 
-When stdout is attached to an interactive terminal, each completed save leaves one permanent `[parse N/M] done ...` line. The currently parsed save uses one header plus one in-place live detail line. When stdout is redirected or captured, progress remains normal newline-delimited text with no cursor-control sequences.
+When stdout is attached to an interactive terminal with usable cursor-control support, each completed save leaves one permanent `[parse N/M] done ...` line. The currently parsed save uses one header plus one in-place live detail line. On Windows the CLI enables and verifies Virtual Terminal processing before using cursor-control sequences; if that is unavailable, or when stdout is redirected/captured, progress falls back to normal newline-delimited text. Live lines are fitted by terminal display width, and a failed parse closes the live block before the exception is propagated.
 
 ## Development
 
