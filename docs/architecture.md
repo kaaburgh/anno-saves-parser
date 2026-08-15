@@ -13,8 +13,8 @@ Turn a sequence of Anno 1800 `.a7s` saves into compact deterministic state and, 
   -> zlib-decompressed FileDB state
   -> FileDB/BBDom v3 traversal
   -> GameSessions / embedded session BinaryData
-  -> player-owned areas
-  -> stable building/object identities
+  -> parser-internal session/object extraction
+  -> canonical state schema v1
   -> canonical JSON.gz
   -> consecutive structural diff
 ```
@@ -36,20 +36,41 @@ These are observations from tested saves, not a guarantee that every game versio
 
 ## Canonical-state principles
 
-1. **Deterministic.** The same save and parser version should produce the same canonical state.
+1. **Deterministic.** The same decoded state and parser version should produce the same canonical data model and ordering.
 2. **Small.** Do not retain raw decoded FileDB trees in the output.
 3. **Identity-preserving.** Keep enough stable IDs to compare consecutive saves.
 4. **Semantic restraint.** Unknown fields stay unknown; naming and interpretation require evidence.
-5. **Versioned.** Before downstream consumers depend on it, introduce an explicit canonical schema version.
+5. **Versioned.** Downstream consumers depend on an explicit schema identifier/version rather than parser-internal dictionaries.
 6. **Player-focused by default.** The tutor use case primarily needs the player's economy, but raw format support should not irreversibly discard context needed to validate ownership/filtering.
+
+## Canonical v1 export boundary
+
+`build_canonical_state()` is the boundary between parser-internal representation and downstream state. The per-save `*.canonical.json.gz` documents use:
+
+- schema name `anno-saves-parser/canonical-state`;
+- schema version `1`;
+- deterministic session, area, building and component ordering;
+- explicit session identity slots;
+- player-area ownership/name metadata;
+- stable object identity, asset GUID/components and conservatively decoded transform state.
+
+The normative contract is [canonical-schema-v1.md](canonical-schema-v1.md). That document owns field meanings, ordering, optionality, excluded representation and compatibility policy.
+
+Parser/container diagnostics are deliberately outside this boundary. RDA sizes, decompressed size, embedded-session extraction index/blob size/path, total raw GameObject counters and recomputable area summary counts may be useful while parsing but are not compatibility commitments.
+
+The batch `summary.json` is also outside the canonical-state schema. Its `states` entries are compact projections without building arrays and therefore do not carry canonical `schema` / `schema_version` markers. A top-level `canonical_schema` reference records which canonical contract produced those projections.
+
+Canonical determinism refers to the JSON data model and ordering, not byte-for-byte reproducibility of gzip containers; gzip metadata may differ between writes.
 
 ## Structural diff identity and GUID mutations
 
-The pre-schema-v1 structural diff treats `(session_guid, area_id, object id)` as the stable comparison key for player-building objects. An asset `guid` is object state, not part of that stable key: observed real-save sequences contain objects that retain the same stable identity while their GUID changes.
+The raw structural diff consumes canonical v1 states and treats `(session_guid, area_id, object id)` as the stable comparison key for player-building objects. An asset `guid` is object state, not part of that stable key: observed real-save sequences contain objects that retain the same stable identity while their GUID changes.
 
 Such transitions are emitted as raw `guid_changed` events with `from_guid` and `to_guid` plus the stable identity and current component set. They are deliberately not classified as upgrades, construction stages, or any other gameplay lifecycle event until the later provenance/semantic layers have evidence for that interpretation.
 
 A single stable object may emit a GUID mutation together with another independent structural event such as a component or movement change. Event lists derived from common stable keys are ordered deterministically by the stable object key.
+
+The structural-diff output is not declared as the canonical-state schema and does not yet have a semantic-diff contract of its own.
 
 ## Observed object transform encoding
 
@@ -92,5 +113,6 @@ This behavior is part of the CLI UX and is covered by regression tests.
 - No committed proprietary `.a7s` fixtures.
 - No requirement for RDAExplorer/FileDBReader executables at runtime.
 - No dependency on game assets for the core parser.
+- No human-readable GUID naming in the canonical core without an explicit provenance layer.
 
 A future watcher and an AI tutor should consume stable parser outputs rather than reach into parser internals.

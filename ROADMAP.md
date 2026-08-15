@@ -19,7 +19,7 @@ Commit the prototype, regression tests, agent guidance, architecture notes and c
 ## P1 — Canonical state
 
 ### ASP-P1-1 — Define canonical schema v1
-**Status:** ready  
+**Status:** done  
 **Depends on:** ASP-P0-2
 
 Make the canonical schema explicit and versioned. Preserve stable identity, session/area ownership and object/component data while excluding volatile parser-only representation.

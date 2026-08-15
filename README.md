@@ -6,19 +6,20 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 
 ## Status
 
-**Early prototype / format research.** The current CLI can:
+**Early format research with canonical state schema v1.** The current CLI can:
 
 - discover `.a7s` files in one or more paths;
 - sort them using the save's internal `LastModTime` rather than filesystem timestamps;
 - start from a save name such as `Autosave 711` or a date such as `2026-08-15`;
 - limit a batch with `--limit`;
 - parse RDA → zlib → FileDB v3 without external executables or Python packages;
-- extract session/player-area building objects into compressed canonical JSON;
-- compare consecutive canonical snapshots;
+- extract session/player-area building objects into compressed canonical JSON using explicit schema v1;
+- preserve stable object identity, GUID/components, and observed transform state while excluding parser/container diagnostics from the canonical contract;
+- compare consecutive canonical v1 snapshots;
 - emit immediate progress plus ~1-second heartbeats during long operations;
 - keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, CI, and terminals without usable cursor-control support.
 
-The canonical model is intentionally incomplete. Population, workforce, inventory, production/demand, trade routes, GUID naming, and semantic episode reconstruction belong to follow-up work.
+Canonical schema v1 is documented in [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md). It is intentionally incomplete in breadth: population, workforce, inventory, production/demand, trade routes, GUID naming, and semantic episode reconstruction belong to follow-up work and may be added as compatible optional state where possible.
 
 ## Requirements
 
@@ -64,7 +65,7 @@ python .\anno_save_probe.py --version
 
 ## Output
 
-For each processed save the CLI writes a compressed canonical snapshot, plus a `summary.json` for the batch:
+For each processed save the CLI writes a compressed **canonical state v1** document, plus a compact `summary.json` batch report:
 
 ```text
 output/
@@ -73,6 +74,19 @@ output/
   Autosave_713.canonical.json.gz
   summary.json
 ```
+
+Each `*.canonical.json.gz` contains the normative schema markers:
+
+```json
+{
+  "schema": "anno-saves-parser/canonical-state",
+  "schema_version": 1,
+  "source": {"save_name": "..."},
+  "sessions": []
+}
+```
+
+`summary.json` is **not** another canonical state file. It contains compact per-save projections and diffs plus a top-level `canonical_schema` reference; full building arrays remain only in the corresponding compressed canonical files. See [the v1 schema contract](docs/canonical-schema-v1.md) for field, ordering, optionality, and compatibility rules.
 
 The parser is read-only with respect to the source save directory.
 
@@ -89,4 +103,4 @@ python -m unittest discover -s tests -v
 
 No real Anno save files are committed to this repository. Unit tests use synthetic data/mocks; local `.a7s` files are ignored by Git.
 
-See [ROADMAP.md](ROADMAP.md) for planned work and [docs/architecture.md](docs/architecture.md) for the current data pipeline and boundaries.
+See [ROADMAP.md](ROADMAP.md) for planned work, [docs/architecture.md](docs/architecture.md) for the current data pipeline and boundaries, and [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md) for the normative canonical state contract.
