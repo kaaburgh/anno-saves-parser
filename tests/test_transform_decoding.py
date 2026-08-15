@@ -27,12 +27,15 @@ class MovementDiffTests(unittest.TestCase):
     @staticmethod
     def _state(source, position):
         return {
-            "source": source,
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": source},
             "sessions": [
                 {
-                    "guid": 123456,
-                    "id": 7,
-                    "player_buildings": [
+                    "session_guid": 123456,
+                    "session_id": 7,
+                    "player_areas": [{"area_id": 42, "owner_id": 0}],
+                    "buildings": [
                         {
                             "area_id": 42,
                             "id": 9001,

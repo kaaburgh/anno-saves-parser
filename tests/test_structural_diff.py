@@ -8,20 +8,26 @@ from unittest.mock import patch
 import anno_save_probe as probe
 
 
-def state(source, objects, session_guid=110934, session_id=6):
+def state(source, objects, session_guid=123456, session_id=6):
+    area_ids = sorted({obj["area_id"] for obj in objects})
     return {
-        "source": source,
+        "schema": probe.CANONICAL_SCHEMA,
+        "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+        "source": {"save_name": source},
         "sessions": [
             {
-                "guid": session_guid,
-                "id": session_id,
-                "player_buildings": objects,
+                "session_guid": session_guid,
+                "session_id": session_id,
+                "player_areas": [
+                    {"area_id": area_id, "owner_id": 0} for area_id in area_ids
+                ],
+                "buildings": objects,
             }
         ],
     }
 
 
-def building(object_id, guid, area_id=8262, components=None, position=None):
+def building(object_id, guid, area_id=42, components=None, position=None):
     obj = {
         "id": object_id,
         "guid": guid,
@@ -35,8 +41,8 @@ def building(object_id, guid, area_id=8262, components=None, position=None):
 
 class StructuralDiffGuidChangeTests(unittest.TestCase):
     def test_guid_only_change_is_one_mutation_without_add_remove_noise(self):
-        prev = state("Autosave 686.a7s", [building(35485019801265, 1010345)])
-        curr = state("Autosave 687.a7s", [building(35485019801265, 1010346)])
+        prev = state("before.a7s", [building(101, 5001)])
+        curr = state("after.a7s", [building(101, 5002)])
 
         diff = probe.diff_states(prev, curr)
 
@@ -49,12 +55,12 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
             diff["guid_changed"],
             [
                 {
-                    "session_guid": 110934,
+                    "session_guid": 123456,
                     "session_id": 6,
-                    "area_id": 8262,
-                    "id": 35485019801265,
-                    "from_guid": 1010345,
-                    "to_guid": 1010346,
+                    "area_id": 42,
+                    "id": 101,
+                    "from_guid": 5001,
+                    "to_guid": 5002,
                     "components": ["Building", "LogisticNode", "Residence7"],
                 }
             ],
@@ -64,17 +70,17 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
         prev = state(
             "before.a7s",
             [
-                building(30, 300, area_id=9000),
-                building(20, 200, area_id=8000),
-                building(10, 100, area_id=8000),
+                building(30, 300, area_id=90),
+                building(20, 200, area_id=80),
+                building(10, 100, area_id=80),
             ],
         )
         curr = state(
             "after.a7s",
             [
-                building(10, 101, area_id=8000),
-                building(30, 301, area_id=9000),
-                building(20, 201, area_id=8000),
+                building(10, 101, area_id=80),
+                building(30, 301, area_id=90),
+                building(20, 201, area_id=80),
             ],
         )
 
@@ -83,7 +89,7 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
         self.assertEqual(diff["guid_changed_count"], 3)
         self.assertEqual(
             [(e["area_id"], e["id"]) for e in diff["guid_changed"]],
-            [(8000, 10), (8000, 20), (9000, 30)],
+            [(80, 10), (80, 20), (90, 30)],
         )
         self.assertEqual(
             [(e["from_guid"], e["to_guid"]) for e in diff["guid_changed"]],
@@ -92,17 +98,21 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
 
     def test_missing_and_present_session_guids_sort_common_objects(self):
         prev = {
-            "source": "before.a7s",
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "before.a7s"},
             "sessions": [
-                {"id": 7, "player_buildings": [building(2, 200)]},
-                {"guid": 110934, "id": 6, "player_buildings": [building(1, 100)]},
+                {"session_guid": None, "session_id": 7, "player_areas": [], "buildings": [building(2, 200)]},
+                {"session_guid": 123456, "session_id": 6, "player_areas": [], "buildings": [building(1, 100)]},
             ],
         }
         curr = {
-            "source": "after.a7s",
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "after.a7s"},
             "sessions": [
-                {"id": 7, "player_buildings": [building(2, 201)]},
-                {"guid": 110934, "id": 6, "player_buildings": [building(1, 101)]},
+                {"session_guid": None, "session_id": 7, "player_areas": [], "buildings": [building(2, 201)]},
+                {"session_guid": 123456, "session_id": 6, "player_areas": [], "buildings": [building(1, 101)]},
             ],
         }
 
@@ -111,22 +121,26 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
         self.assertEqual(diff["guid_changed_count"], 2)
         self.assertEqual(
             [event["session_guid"] for event in diff["guid_changed"]],
-            [110934, None],
+            [123456, None],
         )
 
     def test_missing_and_present_session_guids_sort_added_and_removed_objects(self):
         prev = {
-            "source": "before.a7s",
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "before.a7s"},
             "sessions": [
-                {"id": 7, "player_buildings": [building(2, 200)]},
-                {"guid": 110934, "id": 6, "player_buildings": [building(1, 100)]},
+                {"session_guid": None, "session_id": 7, "player_areas": [], "buildings": [building(2, 200)]},
+                {"session_guid": 123456, "session_id": 6, "player_areas": [], "buildings": [building(1, 100)]},
             ],
         }
         curr = {
-            "source": "after.a7s",
+            "schema": probe.CANONICAL_SCHEMA,
+            "schema_version": probe.CANONICAL_SCHEMA_VERSION,
+            "source": {"save_name": "after.a7s"},
             "sessions": [
-                {"id": 7, "player_buildings": [building(4, 400)]},
-                {"guid": 110934, "id": 6, "player_buildings": [building(3, 300)]},
+                {"session_guid": None, "session_id": 7, "player_areas": [], "buildings": [building(4, 400)]},
+                {"session_guid": 123456, "session_id": 6, "player_areas": [], "buildings": [building(3, 300)]},
             ],
         }
 
@@ -134,16 +148,16 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
 
         self.assertEqual(
             [event["session_guid"] for event in diff["added"]],
-            [110934, None],
+            [123456, None],
         )
         self.assertEqual(
             [event["session_guid"] for event in diff["removed"]],
-            [110934, None],
+            [123456, None],
         )
 
     def test_unchanged_guid_does_not_emit_event(self):
-        prev = state("before.a7s", [building(1, 1010344)])
-        curr = state("after.a7s", [building(1, 1010344)])
+        prev = state("before.a7s", [building(1, 5001)])
+        curr = state("after.a7s", [building(1, 5001)])
 
         diff = probe.diff_states(prev, curr)
 
@@ -153,11 +167,11 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
     def test_guid_change_remains_orthogonal_to_component_change(self):
         prev = state(
             "before.a7s",
-            [building(1, 1010344, components=["Building", "Residence7"])],
+            [building(1, 5001, components=["Building", "Residence7"])],
         )
         curr = state(
             "after.a7s",
-            [building(1, 1010345, components=["Building", "LogisticNode", "Residence7"])],
+            [building(1, 5002, components=["Building", "LogisticNode", "Residence7"])],
         )
 
         diff = probe.diff_states(prev, curr)
@@ -170,8 +184,8 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
     def test_cli_pair_summary_reports_guid_change_count(self):
         saves = [Path("before.a7s"), Path("after.a7s")]
         states = [
-            state("before.a7s", [building(1, 1010344)]),
-            state("after.a7s", [building(1, 1010345)]),
+            state("before.a7s", [building(1, 5001)]),
+            state("after.a7s", [building(1, 5002)]),
         ]
         output = io.StringIO()
 
@@ -187,6 +201,13 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
             "before.a7s -> after.a7s: +0 -0 moved=0 changed=0 guid_changed=1",
             output.getvalue(),
         )
+
+    def test_legacy_pre_v1_state_is_rejected(self):
+        legacy = {"source": "old.a7s", "sessions": []}
+        current = state("new.a7s", [])
+
+        with self.assertRaisesRegex(ValueError, "canonical state schema"):
+            probe.diff_states(legacy, current)
 
 
 if __name__ == "__main__":

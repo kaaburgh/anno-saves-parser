@@ -36,7 +36,7 @@ class CliContractTests(unittest.TestCase):
             self.assertIn(option, help_text)
 
     def test_version_is_exposed(self):
-        self.assertEqual(probe.__version__, "0.2.1")
+        self.assertEqual(probe.__version__, "0.3.0")
 
 
 class SelectionTests(unittest.TestCase):
