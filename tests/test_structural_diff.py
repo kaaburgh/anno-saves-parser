@@ -1,4 +1,9 @@
+import contextlib
+import io
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import anno_save_probe as probe
 
@@ -110,6 +115,27 @@ class StructuralDiffGuidChangeTests(unittest.TestCase):
         self.assertEqual(diff["component_changed_count"], 1)
         self.assertEqual(diff["added_count"], 0)
         self.assertEqual(diff["removed_count"], 0)
+
+    def test_cli_pair_summary_reports_guid_change_count(self):
+        saves = [Path("before.a7s"), Path("after.a7s")]
+        states = [
+            state("before.a7s", [building(1, 1010344)]),
+            state("after.a7s", [building(1, 1010345)]),
+        ]
+        output = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as td:
+            with (
+                contextlib.redirect_stdout(output),
+                patch.object(probe, "discover_saves", return_value=saves),
+                patch.object(probe, "canonicalize_save", side_effect=states),
+            ):
+                probe.main([str(Path(td)), "-o", str(Path(td) / "out")])
+
+        self.assertIn(
+            "before.a7s -> after.a7s: +0 -0 moved=0 changed=0 guid_changed=1",
+            output.getvalue(),
+        )
 
 
 if __name__ == "__main__":
