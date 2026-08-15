@@ -75,7 +75,7 @@ def _supports_in_place_rendering(stream) -> bool:
     if os.name == "nt":
         return _enable_windows_vt(stream)
     term = os.environ.get("TERM", "").strip().casefold()
-    return term not in {"dumb", "unknown"}
+    return term not in {"", "dumb", "unknown"}
 
 
 class Progress:
@@ -104,8 +104,6 @@ class Progress:
 
     @staticmethod
     def _cell_width(char: str) -> int:
-        if char == "\t":
-            return 4
         category = unicodedata.category(char)
         if category.startswith("C") or unicodedata.combining(char):
             return 0
@@ -157,7 +155,7 @@ class Progress:
 
     def _fit_live_line(self, message: str) -> str:
         """Prevent live output from wrapping and breaking cursor accounting."""
-        message = message.replace("\r", " ").replace("\n", " ")
+        message = message.replace("\r", " ").replace("\n", " ").replace("\t", " ")
         columns = self.terminal_width
         if columns is None:
             columns = shutil.get_terminal_size(fallback=(120, 24)).columns
@@ -757,8 +755,8 @@ def select_from(saves: list[Path], start: Optional[str]) -> list[Path]:
     if not start:
         return saves
 
-    # YYYY-MM-DD means the first save whose filesystem modification date
-    # is on or after this local calendar day.
+    # YYYY-MM-DD means the first save whose internal LastModTime date is
+    # on or after this local calendar day; filesystem mtime is fallback only.
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
         try:
             wanted = date.fromisoformat(start)
