@@ -42,6 +42,14 @@ These are observations from tested saves, not a guarantee that every game versio
 5. **Versioned.** Before downstream consumers depend on it, introduce an explicit canonical schema version.
 6. **Player-focused by default.** The tutor use case primarily needs the player's economy, but raw format support should not irreversibly discard context needed to validate ownership/filtering.
 
+## Structural diff identity and GUID mutations
+
+The pre-schema-v1 structural diff treats `(session_guid, area_id, object id)` as the stable comparison key for player-building objects. An asset `guid` is object state, not part of that stable key: observed real-save sequences contain objects that retain the same stable identity while their GUID changes.
+
+Such transitions are emitted as raw `guid_changed` events with `from_guid` and `to_guid` plus the stable identity and current component set. They are deliberately not classified as upgrades, construction stages, or any other gameplay lifecycle event until the later provenance/semantic layers have evidence for that interpretation.
+
+A single stable object may emit a GUID mutation together with another independent structural event such as a component or movement change. Event lists derived from common stable keys are ordered deterministically by the stable object key.
+
 ## Why five-minute autosaves are promising
 
 Initial consecutive-save experiments produced sparse, interpretable object changes in ordinary intervals and one large but coherent module-heavy construction burst. That suggests semantic clustering can recover useful decision episodes without logging every click. This is a feasibility result, not yet a quality guarantee; future economy extraction will determine how much intent can be inferred from state alone.
