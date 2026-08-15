@@ -1,3 +1,4 @@
+import io
 import struct
 import tempfile
 import unittest
@@ -198,6 +199,36 @@ class FileDBSliceTests(unittest.TestCase):
             path.write_bytes(session_blob)
             with self.assertRaisesRegex(ValueError, "exceeds source file"):
                 probe.parse_session(path, base_offset=1, blob_size=len(session_blob))
+
+    def test_dictionary_string_cannot_cross_slice_boundary(self):
+        # One dictionary entry whose name never terminates before the declared slice limit.
+        raw = struct.pack("<iH", 1, 7) + b"unterminated"
+        with self.assertRaisesRegex(ValueError, "dictionary string exceeds FileDB slice"):
+            probe._read_dictionary_at(io.BytesIO(raw), 0, 0, len(raw))
+
+    def test_negative_session_attribute_size_is_rejected(self):
+        malformed = _filedb(
+            [struct.pack("<ii", -1, 32768)],
+            {},
+            {32768: "ID"},
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "session.bin"
+            path.write_bytes(malformed)
+            with self.assertRaisesRegex(ValueError, "negative session FileDB attribute size"):
+                probe.parse_session(path)
+
+    def test_negative_top_level_attribute_size_is_rejected(self):
+        malformed = _filedb(
+            [struct.pack("<ii", -1, 32768)],
+            {},
+            {32768: "BinaryData"},
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "data.bin"
+            path.write_bytes(malformed)
+            with self.assertRaisesRegex(ValueError, "negative top-level FileDB attribute size"):
+                probe.extract_sessions(path)
 
 
 if __name__ == "__main__":
