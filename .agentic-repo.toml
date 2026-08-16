@@ -1,0 +1,17 @@
+kit_version = 1
+profiles = [
+  "core",
+  "reverse-engineering",
+  "proprietary-target",
+]
+
+[project]
+name = "Anno 1800 save parser"
+kind = "deterministic proprietary-save reverse engineering and semantic timeline"
+roadmap = "ROADMAP.md"
+
+[workflow]
+cloud_first = true
+
+[local]
+policy_files = ["docs/agent-policy.local.md"]
