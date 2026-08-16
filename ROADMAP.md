@@ -8,9 +8,9 @@ This is the single product roadmap for extraction, semantic reconstruction, coac
 reliable structural state
 → semantic timeline MVP
 → prove coaching usefulness on real play history
+→ classify coaching failures / blind spots
 → add intent/context
 → add deterministic economic evidence
-→ classify coaching failures / blind spots
 → expand extraction/semantics where evidence shows value
 → repeat evaluation
 ```
@@ -82,7 +82,7 @@ Translate deterministic raw object additions/removals/moves/GUID/component chang
 - **Category:** Semantic reconstruction
 - **Depends on:** ASP-P2-1
 
-Collapse field/module bursts and related infrastructure into higher-level construction episodes so module-heavy transitions are not represented as hundreds of independent player decisions. Validate clustering against reduced synthetic cases and private aggregate observations without committing proprietary data.
+Collapse field/module bursts and related infrastructure into higher-level construction episodes so module-heavy transitions are not represented as hundreds of independent player decisions. Use reduced synthetic cases to establish deterministic clustering behavior. Before treating target-derived grouping boundaries as factual construction episodes, corroborate representative private transitions against independently observed or labeled real player actions; until such target-grounded evidence exists, describe target grouping only as a hypothesis or internal-consistency result rather than validated episode semantics.
 
 ### ASP-P4-1 — Stable timeline export contract
 
@@ -155,12 +155,12 @@ Compute deterministic economic deltas/episodes over consecutive saves, including
 
 ### ASP-P1-4 — Trade route extraction
 
-- **Status:** Open
+- **Status:** GATED
 - **Priority:** Medium
 - **Category:** Deterministic economy / logistics
 - **Depends on:** ASP-P5-3
 
-Canonicalize routes, stations, assigned ships, configured goods and useful visit/history state when evaluation evidence shows logistics visibility is a material coaching blind spot. This item is retained but is no longer assumed to be on the critical path before the first usefulness experiment.
+Canonicalize routes, stations, assigned ships, configured goods and useful visit/history state only if a documented `ASP-P5-3` evaluation result identifies logistics visibility as a material coaching blind spot. Completion of `ASP-P5-3` satisfies the graph dependency but does not by itself open this item: the evaluation outcome must explicitly move this item to `Open`, or drop/supersede it if the expected coaching value is not established. This item is retained but is not assumed to be on the critical path before the first usefulness experiment.
 
 ## Blind-spot-driven expansion loop
 
