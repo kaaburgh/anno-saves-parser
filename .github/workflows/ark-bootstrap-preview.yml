@@ -57,5 +57,23 @@ jobs:
           python -m compileall -q anno_save_probe.py tests
           python -m unittest discover -s tests -v
 
+      - name: Capture generated contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: ark-generated-contract
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            AGENTS.md
+            CLAUDE.md
+            .agentic-repo.lock.json
+            .github/copilot-instructions.md
+            .github/pull_request_template.md
+            .github/workflows/agentic-repo-check.yml
+            docs/agent-playbook.md
+            docs/roadmap-authoring.md
+            docs/re/README.md
+            docs/experiments/README.md
+
       - name: Show generated reconciliation diff
         run: git diff --exit-code
