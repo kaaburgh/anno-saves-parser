@@ -23,12 +23,13 @@ import time
 import unicodedata
 import zlib
 from collections import Counter
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from datetime import date, datetime
 from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
-__version__ = "0.3.3"
+__version__ = "0.4.0"
 
 CANONICAL_SCHEMA = "anno-saves-parser/canonical-state"
 CANONICAL_SCHEMA_VERSION = 1
@@ -36,6 +37,9 @@ RDA_MAGIC = b"Resource File V2.2"
 BBDOM_V3_MAGIC = bytes.fromhex("08000000fdffffff")
 PAD_BLOCK = 8
 AREA_RE = re.compile(r"^AreaManager_(\d+)$")
+PARALLEL_RAM_ESTIMATE_BYTES = 384 * 1024 * 1024
+PARALLEL_TEMP_ESTIMATE_BYTES = 320 * 1024 * 1024
+WINDOWS_PROCESS_WORKER_LIMIT = 61
 
 INTERESTING_COMPONENTS = {
     "Building", "Residence7", "Factory7", "BuildingModule", "Warehouse",
@@ -1370,6 +1374,307 @@ def print_save_list(saves: list[Path]) -> None:
         )
 
 
+
+def _positive_worker_count(value: str) -> int:
+    """argparse type for an explicit positive process-worker count."""
+    try:
+        workers = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--workers must be a positive integer") from exc
+    if workers <= 0:
+        raise argparse.ArgumentTypeError("--workers must be greater than zero")
+    return workers
+
+
+def resolve_worker_count(requested: int, save_count: int) -> int:
+    """Resolve explicit concurrency and enforce hard platform executor limits."""
+    if requested <= 0:
+        raise ValueError("worker count must be greater than zero")
+    if save_count <= 0:
+        return 1
+    active = min(requested, save_count)
+    if os.name == "nt" and active > WINDOWS_PROCESS_WORKER_LIMIT:
+        raise ValueError(
+            f"--workers resolves to {active} active workers, but Windows "
+            f"ProcessPoolExecutor supports at most {WINDOWS_PROCESS_WORKER_LIMIT}"
+        )
+    return active
+
+
+def _available_memory_bytes() -> Optional[int]:
+    """Return currently available physical memory when stdlib/platform APIs allow it."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MEMORYSTATUSEX()
+            status.dwLength = ctypes.sizeof(status)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return int(status.ullAvailPhys)
+        except (AttributeError, OSError, ValueError):
+            return None
+        return None
+
+    try:
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+        available_pages = int(os.sysconf("SC_AVPHYS_PAGES"))
+    except (AttributeError, OSError, ValueError):
+        return None
+    if page_size <= 0 or available_pages <= 0:
+        return None
+    return page_size * available_pages
+
+
+def _format_gib(value: Optional[int]) -> str:
+    return "unknown" if value is None else f"{value / (1024 ** 3):.1f} GiB"
+
+
+def report_worker_plan(
+    requested: int,
+    active: int,
+    progress: Progress,
+) -> None:
+    """Report explicit concurrency and conservative resource-pressure warnings."""
+    cpu_count = os.cpu_count()
+    available_memory = _available_memory_bytes()
+    try:
+        temp_free = shutil.disk_usage(tempfile.gettempdir()).free
+    except OSError:
+        temp_free = None
+
+    mode = "serial" if active == 1 else "process"
+    cpu_text = "unknown" if cpu_count is None else str(cpu_count)
+    progress.say(
+        f"[workers] requested={requested} active={active} mode={mode} "
+        f"cpu={cpu_text} available_ram={_format_gib(available_memory)} "
+        f"temp_free={_format_gib(temp_free)}"
+    )
+
+    if active <= 1:
+        return
+    if cpu_count is not None and active > cpu_count:
+        progress.say(
+            f"  [workers] warning: active workers ({active}) exceed logical CPUs ({cpu_count})"
+        )
+
+    estimated_ram = active * PARALLEL_RAM_ESTIMATE_BYTES
+    if available_memory is not None and available_memory < estimated_ram:
+        progress.say(
+            "  [workers] warning: available RAM is below the conservative "
+            f"~{estimated_ram / (1024 ** 3):.1f} GiB estimate for {active} workers"
+        )
+
+    estimated_temp = active * PARALLEL_TEMP_ESTIMATE_BYTES
+    if temp_free is not None and temp_free < estimated_temp:
+        progress.say(
+            "  [workers] warning: free temp space is below the conservative "
+            f"~{estimated_temp / (1024 ** 3):.1f} GiB active-worker estimate"
+        )
+
+
+def _canonicalize_worker(save_path: str) -> tuple[dict, float]:
+    """Process-pool entrypoint: canonicalize one save without emitting worker logs."""
+    save = Path(save_path)
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="anno-save-probe-") as td:
+        state = canonicalize_save(save, Path(td), None)
+    return state, time.monotonic() - started
+
+
+def canonical_output_filename(save: Path) -> str:
+    """Return the stable canonical snapshot filename for one source save."""
+    stem = save.stem.replace(" ", "_")
+    return f"{stem}.canonical.json.gz"
+
+
+def validate_canonical_output_names(saves: list[Path]) -> None:
+    """Reject batches whose selected saves would overwrite one canonical snapshot."""
+    seen: dict[str, Path] = {}
+    for save in saves:
+        filename = canonical_output_filename(save)
+        # Compare independently of the host OS: the output directory may live on
+        # a case-insensitive or Unicode-normalizing volume even when Python itself is
+        # running on POSIX. Rejecting conservatively is safer than silent overwrite.
+        key = unicodedata.normalize("NFC", filename).casefold()
+        previous = seen.get(key)
+        if previous is not None:
+            raise ValueError(
+                "selected saves map to the same canonical output filename "
+                f"{filename!r}: {previous} and {save}"
+            )
+        seen[key] = save
+
+
+def _write_canonical_state(save: Path, state: dict, output: Path) -> Path:
+    canonical_path = output / canonical_output_filename(save)
+    with gzip.open(canonical_path, "wt", encoding="utf8") as f:
+        json.dump(state, f, separators=(",", ":"))
+    return canonical_path
+
+
+def _parse_completion_line(index: int, total: int, elapsed: float, state: dict) -> str:
+    return (
+        f"[parse {index}/{total}] done in {elapsed:.1f}s: "
+        f"sessions={len(state['sessions'])} "
+        f"player_buildings={sum(len(s['buildings']) for s in state['sessions']):,}"
+    )
+
+
+def parse_saves_serial(saves: list[Path], output: Path, progress: Progress) -> list[dict]:
+    """Preserve the existing detailed single-process parsing behavior."""
+    states = []
+    for i, save in enumerate(saves, 1):
+        file_started = time.monotonic()
+        progress.begin_parse(f"[parse {i}/{len(saves)}] {save.name}")
+        try:
+            with tempfile.TemporaryDirectory(prefix="anno-save-probe-") as td:
+                state = canonicalize_save(save, Path(td), progress)
+            states.append(state)
+            canonical_path = output / f"{save.stem.replace(' ', '_')}.canonical.json.gz"
+            progress.say(f"  [write] {canonical_path.name}")
+            _write_canonical_state(save, state, output)
+        except BaseException as exc:
+            progress.abort_parse(
+                f"[parse {i}/{len(saves)}] failed: {type(exc).__name__}: {exc}"
+            )
+            raise
+        elapsed = time.monotonic() - file_started
+        progress.finish_parse(_parse_completion_line(i, len(saves), elapsed, state))
+    return states
+
+
+def parse_saves_parallel(
+    saves: list[Path],
+    output: Path,
+    progress: Progress,
+    workers: int,
+    executor_factory=ProcessPoolExecutor,
+    wait_fn=wait,
+) -> list[dict]:
+    """Canonicalize saves with bounded process submission while preserving input order."""
+    total = len(saves)
+    if total == 0:
+        return []
+    workers = resolve_worker_count(workers, total)
+    states: list[Optional[dict]] = [None] * total
+    completed = 0
+    next_index = 0
+    futures = {}
+    executor = executor_factory(max_workers=workers)
+
+    def submit(index: int) -> None:
+        future = executor.submit(_canonicalize_worker, str(saves[index]))
+        futures[future] = index
+
+    try:
+        while next_index < total and len(futures) < workers:
+            submit(next_index)
+            next_index += 1
+
+        while futures:
+            done, _ = wait_fn(
+                set(futures),
+                timeout=1.0,
+                return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                progress.maybe(
+                    f"[parse] completed={completed}/{total} running={len(futures)} "
+                    f"pending={total - completed - len(futures)}"
+                )
+                continue
+
+            completed_batch = []
+            batch_failure = None
+            for future in sorted(done, key=lambda item: futures[item]):
+                index = futures.pop(future)
+                save = saves[index]
+                try:
+                    state, elapsed = future.result()
+                except BaseException as exc:
+                    if batch_failure is None:
+                        batch_failure = (save, exc)
+                    continue
+                completed_batch.append((index, save, state, elapsed))
+
+            if batch_failure is not None:
+                save, exc = batch_failure
+                raise RuntimeError(
+                    f"{save.name}: parallel parse failed: {type(exc).__name__}: {exc}"
+                ) from exc
+
+            for index, save, state, elapsed in completed_batch:
+                states[index] = state
+                _write_canonical_state(save, state, output)
+                completed += 1
+                progress.say(
+                    _parse_completion_line(index + 1, total, elapsed, state)
+                    + f" completed={completed}/{total}"
+                )
+
+            while next_index < total and len(futures) < workers:
+                submit(next_index)
+                next_index += 1
+    except BaseException as exc:
+        # Future.cancel() cannot stop work that is already running. Surface the
+        # failure immediately, then keep the cleanup wait observable instead of
+        # blocking silently inside executor.shutdown(wait=True).
+        cleanup_pending = set()
+        for future in futures:
+            if not future.cancel():
+                cleanup_pending.add(future)
+        progress.say(
+            f"[parse] failure detected: {type(exc).__name__}: {exc}; "
+            f"waiting for {len(cleanup_pending)} active worker(s) to exit"
+        )
+        while cleanup_pending:
+            done, cleanup_pending = wait_fn(
+                cleanup_pending,
+                timeout=1.0,
+                return_when=FIRST_COMPLETED,
+            )
+            if not done:
+                progress.maybe(
+                    f"[parse] failure cleanup: waiting for "
+                    f"{len(cleanup_pending)} active worker(s) to exit"
+                )
+        progress.say("[parse] failure cleanup: finalizing worker processes")
+        executor.shutdown(wait=True, cancel_futures=True)
+        progress.say("[parse] failure cleanup complete")
+        raise
+    else:
+        executor.shutdown(wait=True)
+
+    if any(state is None for state in states):
+        raise RuntimeError("parallel parse completed without producing every canonical state")
+    return [state for state in states if state is not None]
+
+
+def parse_saves_batch(
+    saves: list[Path],
+    output: Path,
+    progress: Progress,
+    workers: int,
+) -> list[dict]:
+    validate_canonical_output_names(saves)
+    if workers == 1:
+        return parse_saves_serial(saves, output, progress)
+    return parse_saves_parallel(saves, output, progress, workers)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the public CLI parser.
 
@@ -1417,6 +1722,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     ap.add_argument(
+        "--workers",
+        type=_positive_worker_count,
+        default=1,
+        metavar="N",
+        help=(
+            "Parse up to N saves concurrently with worker processes; default 1 "
+            "keeps the existing serial behavior."
+        ),
+    )
+    ap.add_argument(
         "-o",
         "--output",
         type=Path,
@@ -1460,30 +1775,13 @@ def main(argv: Optional[list[str]] = None) -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     progress.say(f"[input] selected {len(saves)} save(s); {saves[0].name} -> {saves[-1].name}")
     progress.say(f"[output] {args.output.resolve()}")
-    states = []
-    for i, save in enumerate(saves, 1):
-        file_started = time.monotonic()
-        progress.begin_parse(f"[parse {i}/{len(saves)}] {save.name}")
-        try:
-            with tempfile.TemporaryDirectory(prefix="anno-save-probe-") as td:
-                state = canonicalize_save(save, Path(td), progress)
-            states.append(state)
-            stem = save.stem.replace(" ", "_")
-            canonical_path = args.output / f"{stem}.canonical.json.gz"
-            progress.say(f"  [write] {canonical_path.name}")
-            with gzip.open(canonical_path, "wt", encoding="utf8") as f:
-                json.dump(state, f, separators=(",", ":"))
-        except BaseException as exc:
-            progress.abort_parse(
-                f"[parse {i}/{len(saves)}] failed: {type(exc).__name__}: {exc}"
-            )
-            raise
-        elapsed = time.monotonic() - file_started
-        progress.finish_parse(
-            f"[parse {i}/{len(saves)}] done in {elapsed:.1f}s: "
-            f"sessions={len(state['sessions'])} "
-            f"player_buildings={sum(len(s['buildings']) for s in state['sessions']):,}"
-        )
+    try:
+        active_workers = resolve_worker_count(args.workers, len(saves))
+        validate_canonical_output_names(saves)
+    except ValueError as exc:
+        ap.error(str(exc))
+    report_worker_plan(args.workers, active_workers, progress)
+    states = parse_saves_batch(saves, args.output, progress, active_workers)
 
     diffs = build_adjacent_diffs(states, progress, detailed_timings=args.timings)
     with (args.output / "summary.json").open("w", encoding="utf8") as f:

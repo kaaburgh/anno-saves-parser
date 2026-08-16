@@ -105,6 +105,10 @@ Across multiple consecutive private-save pairs, `Position` was present on every 
 
 Initial consecutive-save experiments produced sparse, interpretable object changes in ordinary intervals and one large but coherent module-heavy construction burst. That suggests semantic clustering can recover useful decision episodes without logging every click. This is a feasibility result, not yet a quality guarantee; future economy extraction will determine how much intent can be inferred from state alone.
 
+## Batch concurrency boundary
+
+Save canonicalization is independent until adjacent diffs are built. The CLI therefore permits explicit bounded process-level concurrency with `--workers N`; the default remains one worker. Parallel workers receive only one save path at a time, build their own temporary `data.bin`, return canonical state to the parent, and do not emit interleaved stage logs. The parent preserves chronological state/diff ordering and owns output serialization/progress. Before any worker is scheduled, it rejects source sets whose derived canonical output names collide under filesystem-independent Unicode NFC normalization plus case-folding, preventing completion order from deciding which state survives even when a POSIX host writes to a case-insensitive or Unicode-normalizing volume. This is a runtime scheduling concern only and does not change canonical schema or structural-diff semantics.
+
 ## CLI observability contract
 
 Long operations must not look hung:
@@ -112,7 +116,8 @@ Long operations must not look hung:
 - print the start of a new stage immediately and flush stdout;
 - if a stage completes quickly, print its result directly;
 - if it continues, emit a heartbeat/progress line roughly once per second;
-- include useful counters/percentages where cheaply available.
+- include useful counters/percentages where cheaply available;
+- after a parallel worker failure, report the failure immediately and keep roughly one-second cleanup heartbeats visible while already-running workers finish.
 
 This behavior is part of the CLI UX and is covered by regression tests.
 

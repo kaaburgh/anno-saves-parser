@@ -1,6 +1,6 @@
 # Canonical state schema v1
 
-This document defines the normative downstream contract for per-save `*.canonical.json.gz` files emitted by `anno-saves-parser` 0.3.x.
+This document defines the normative downstream contract for per-save `*.canonical.json.gz` files identified by canonical schema version 1. The contract remains authoritative across parser releases while schema version 1 is current; `anno-saves-parser` 0.3.x and 0.4.x emit this schema.
 
 ## Identity
 
