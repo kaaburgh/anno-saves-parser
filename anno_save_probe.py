@@ -1597,16 +1597,26 @@ def parse_saves_parallel(
                 )
                 continue
 
+            completed_batch = []
+            batch_failure = None
             for future in sorted(done, key=lambda item: futures[item]):
                 index = futures.pop(future)
                 save = saves[index]
                 try:
                     state, elapsed = future.result()
                 except BaseException as exc:
-                    raise RuntimeError(
-                        f"{save.name}: parallel parse failed: {type(exc).__name__}: {exc}"
-                    ) from exc
+                    if batch_failure is None:
+                        batch_failure = (save, exc)
+                    continue
+                completed_batch.append((index, save, state, elapsed))
 
+            if batch_failure is not None:
+                save, exc = batch_failure
+                raise RuntimeError(
+                    f"{save.name}: parallel parse failed: {type(exc).__name__}: {exc}"
+                ) from exc
+
+            for index, save, state, elapsed in completed_batch:
                 states[index] = state
                 _write_canonical_state(save, state, output)
                 completed += 1
@@ -1615,9 +1625,9 @@ def parse_saves_parallel(
                     + f" completed={completed}/{total}"
                 )
 
-                if next_index < total:
-                    submit(next_index)
-                    next_index += 1
+            while next_index < total and len(futures) < workers:
+                submit(next_index)
+                next_index += 1
     except BaseException as exc:
         # Future.cancel() cannot stop work that is already running. Surface the
         # failure immediately, then keep the cleanup wait observable instead of
