@@ -1,0 +1,33 @@
+{
+  "distribution": {
+    "artifact": "agentic-repo-kit-0.1.12.pyz",
+    "release": "v0.1.12",
+    "repository": "kaaburgh/agentic-repo-kit",
+    "sha256": "004708e14806f11e4cbe3751622403c92fb7022bb436876bdb76f339b7ec5e3c",
+    "tool_version": "0.1.12"
+  },
+  "format": 2,
+  "generated": {
+    ".github/copilot-instructions.md": "6fe72eca1eab8a997562d448c54a6bb8d4f7726186a07dfc6d328022a9b03bf2",
+    ".github/pull_request_template.md": "2788c12680eb98b6e874adb43b2038572104a8e70611d4bd0018cd5810136100",
+    ".github/workflows/agentic-repo-check.yml": "3851fb3a320ed3e7055dc42d2eca682491d1600e07aabba28ec03413d735a9c3",
+    "AGENTS.md": "c9b12bb5c5ec95d5bb22a83f43d76b48d9466638e8c34f9ecb1f2d6483796589",
+    "CLAUDE.md": "e68ff4b91505b9ca79f6f6656439c0c73a3448581f92407f25ee20aba9320088",
+    "docs/agent-playbook.md": "265ed72406a8cfb712ec81e25a5ac09240d590b2a06c7e9639997e0084fd9e02",
+    "docs/experiments/README.md": "dccd1781eb4122aebbd63673790b6a6a362cb0f2a9d2f5f2050f7ff7edc025ef",
+    "docs/re/README.md": "afbf798d9885bde2df709e8dc1437b88cd64e03c9afda833d6e2c5b58231518e",
+    "docs/roadmap-authoring.md": "43982a4c47b1fc3bab26a7acb544eb82ebe7bc3ff30eae1f9f09a00e0222a182"
+  },
+  "kit_version": 1,
+  "profiles": [
+    "core",
+    "reverse-engineering",
+    "proprietary-target"
+  ],
+  "project": {
+    "kind": "deterministic proprietary-save reverse engineering and semantic timeline",
+    "name": "Anno 1800 save parser",
+    "roadmap": "ROADMAP.md"
+  },
+  "tool_version": "0.1.12"
+}
