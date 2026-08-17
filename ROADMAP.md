@@ -55,7 +55,7 @@ Keep canonical state explicit and versioned, preserving stable identity, session
 
 Resolve relevant GUIDs to human-readable names through an explicit provenance-aware mapping without coupling core parsing to downloaded game assets or guesses. Initial scope should prioritize identities needed to interpret high-frequency stable-ID GUID transitions observed in the private evaluation corpus.
 
-The first implementation slice defines a dependency-free versioned mapping contract with required source/mapping provenance, exact-only GUID resolution, explicit unresolved names, and structural-diff enrichment that preserves raw numeric GUID identity. Synthetic tests cover resolved, unknown, malformed and incompatible-provenance cases. CLI wiring and a documented operator-owned real mapping source remain open; no real Anno GUID/name claim is established yet.
+The repository defines a dependency-free versioned mapping contract with required source/mapping provenance, exact-only GUID resolution, explicit unresolved names, and structural-diff enrichment that preserves raw numeric GUID identity. The public batch CLI can optionally load one operator-owned mapping before save parsing and enrich only `summary.json` diffs while leaving canonical snapshots unchanged; malformed, incompatible, or unreadable mappings fail closed. Synthetic tests cover mapping validation plus mapped/unmapped CLI behavior. Selection and documentation of a real operator-owned mapping source remain open; no real Anno GUID/name claim is established yet.
 
 ### ASP-P2-0 — Player-area lifecycle raw events
 
