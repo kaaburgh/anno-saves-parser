@@ -120,6 +120,8 @@ def load_guid_mapping(path: Path) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf8") as stream:
             document = json.load(stream, object_pairs_hook=_reject_duplicate_keys)
+    except UnicodeDecodeError as exc:
+        raise GuidMappingError(f"GUID mapping is not valid UTF-8: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise GuidMappingError(f"invalid GUID mapping JSON: {exc}") from exc
     return validate_guid_mapping(document)
