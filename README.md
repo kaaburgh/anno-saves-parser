@@ -13,6 +13,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - start from a save name such as `Autosave 711` or a date such as `2026-08-15`;
 - limit a batch with `--limit`;
 - opt into bounded save-level process parallelism with `--workers N` while keeping serial execution as the default;
+- optionally enrich structural diffs with exact GUID names from an operator-owned provenance-aware mapping via `--guid-mapping PATH`, without changing canonical snapshots or numeric GUID identity;
 - parse RDA → zlib → FileDB v3 without external executables or Python packages;
 - extract session/player-area building objects into compressed canonical JSON using explicit schema v1;
 - preserve stable object identity, GUID/components, and observed transform state while excluding parser/container diagnostics from the canonical contract;
@@ -21,7 +22,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - emit immediate progress plus ~1-second heartbeats during long operations;
 - keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, CI, and terminals without usable cursor-control support.
 
-Canonical schema v1 is documented in [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md). It is intentionally incomplete in breadth: population, workforce, inventory, production/demand, trade routes, GUID naming, and semantic episode reconstruction belong to follow-up work and may be added as compatible optional state where possible.
+Canonical schema v1 is documented in [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md). It is intentionally incomplete in breadth: population, workforce, inventory, production/demand, trade routes, real GUID mapping source selection, and semantic episode reconstruction belong to follow-up work and may be added as compatible optional state where possible.
 
 ## Requirements
 
@@ -66,6 +67,14 @@ python .\anno_save_probe.py "C:\...\<profile>" --from "Autosave 664" --workers 2
 ```
 
 `--workers 1` is the default and preserves the detailed serial progress view. Values above `1` use bounded process workers so the CPU-heavy FileDB traversal is not limited by the GIL. The parent keeps at most the resolved worker count active, preserves chronological state/diff ordering even when saves finish out of order, and reports aggregate progress instead of interleaving worker logs. Each active disk-backed worker may need roughly 300–400 MiB of RAM plus about 320 MiB of temporary storage; the CLI reports available resources and warns about obviously aggressive explicit settings without silently overriding them. On Windows, a resolved active count above the standard-library `ProcessPoolExecutor` hard limit of 61 is rejected before pool construction with a clear CLI error. If one worker fails, the failure is surfaced immediately; pending work is cancelled and roughly one-second cleanup heartbeats remain visible while already-running workers finish and remove their temporary directories.
+
+Optionally enrich only the structural diffs written to `summary.json` with exact names from an operator-owned GUID mapping:
+
+```powershell
+python .\anno_save_probe.py "C:\...\<profile>" --guid-mapping "C:\...\guid-mapping.json" -o mapped_probe\
+```
+
+The mapping must satisfy the provenance contract in [docs/guid-mapping.md](docs/guid-mapping.md). It is validated before save discovery and parsing; unreadable, malformed, or incompatible input fails closed. Omitting `--guid-mapping` preserves the existing output shape. Supplying it leaves compressed canonical snapshots and every numeric GUID unchanged while adding mapping provenance and parallel nullable name fields to summary diffs. The parser does not download or select a real Anno mapping source.
 
 Show per-adjacent-pair structural diff timings as well as the always-on total diff time:
 
