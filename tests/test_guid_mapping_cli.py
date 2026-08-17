@@ -72,6 +72,23 @@ class GuidMappingCliTests(unittest.TestCase):
         self.assertIn("--guid-mapping", stderr.getvalue())
         self.assertIn("invalid GUID mapping JSON", stderr.getvalue())
 
+    def test_invalid_utf8_mapping_fails_before_save_discovery(self):
+        with tempfile.TemporaryDirectory() as td:
+            mapping_path = Path(td) / "mapping.json"
+            mapping_path.write_bytes(b"\xff\xfe")
+            stderr = io.StringIO()
+            with (
+                patch.object(probe, "discover_saves") as discover,
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                probe.main(["saves", "--guid-mapping", str(mapping_path)])
+
+        self.assertEqual(raised.exception.code, 2)
+        discover.assert_not_called()
+        self.assertIn("not valid UTF-8", stderr.getvalue())
+
     def test_cli_without_mapping_preserves_raw_diff_shape(self):
         states = [
             self._state("before.a7s", []),
