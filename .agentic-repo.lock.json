@@ -1,10 +1,10 @@
 {
   "distribution": {
-    "artifact": "agentic-repo-kit-0.1.12.pyz",
-    "release": "v0.1.12",
+    "artifact": "agentic-repo-kit-0.1.13.pyz",
+    "release": "v0.1.13",
     "repository": "kaaburgh/agentic-repo-kit",
-    "sha256": "004708e14806f11e4cbe3751622403c92fb7022bb436876bdb76f339b7ec5e3c",
-    "tool_version": "0.1.12"
+    "sha256": "b1b7b23f1082dd3998cf01f6335a571aa695eb422a99aa1809e8e5770317c985",
+    "tool_version": "0.1.13"
   },
   "format": 2,
   "generated": {
@@ -29,5 +29,5 @@
     "name": "Anno 1800 save parser",
     "roadmap": "ROADMAP.md"
   },
-  "tool_version": "0.1.12"
+  "tool_version": "0.1.13"
 }
