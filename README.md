@@ -22,7 +22,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - emit immediate progress plus ~1-second heartbeats during long operations;
 - keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, CI, and terminals without usable cursor-control support.
 
-Canonical schema v1 is documented in [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md). It is intentionally incomplete in breadth: population, workforce, inventory, production/demand, trade routes, real GUID mapping source selection, and semantic episode reconstruction belong to follow-up work and may be added as compatible optional state where possible.
+Canonical schema v1 is documented in [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md). It is intentionally incomplete in breadth: population, workforce, inventory, production/demand, trade routes, operator-side GUID mapping export/real-data validation, and semantic episode reconstruction belong to follow-up work and may be added as compatible optional state where possible.
 
 ## Requirements
 
@@ -74,7 +74,7 @@ Optionally enrich only the structural diffs written to `summary.json` with exact
 python .\anno_save_probe.py "C:\...\<profile>" --guid-mapping "C:\...\guid-mapping.json" -o mapped_probe\
 ```
 
-The mapping must satisfy the provenance contract in [docs/guid-mapping.md](docs/guid-mapping.md). It is validated before save discovery and parsing; unreadable, malformed, or incompatible input fails closed. Omitting `--guid-mapping` preserves the existing output shape. Supplying it leaves compressed canonical snapshots and every numeric GUID unchanged while adding mapping provenance and parallel nullable name fields to summary diffs. The parser does not download or select a real Anno mapping source.
+The mapping must satisfy the provenance contract in [docs/guid-mapping.md](docs/guid-mapping.md). It is validated before save discovery and parsing; unreadable, malformed, or incompatible input fails closed. Omitting `--guid-mapping` preserves the existing output shape. Supplying it leaves compressed canonical snapshots and every numeric GUID unchanged while adding mapping provenance and parallel nullable name fields to summary diffs. The parser does not acquire the proprietary source itself; the selected operator-owned source path is documented in [docs/guid-source-selection.md](docs/guid-source-selection.md).
 
 Show per-adjacent-pair structural diff timings as well as the always-on total diff time:
 
