@@ -34,6 +34,20 @@ The loader fails closed on unsupported schema versions, missing provenance, dupl
 
 This keeps the evidence boundary explicit: a consumer can always distinguish observed numeric identity from human-readable mapping evidence, can see which mapping revision produced the names, and can bind those derived names to the immutable semantic content identity of that mapping. Canonical schema v1 is unchanged.
 
+## Batch CLI integration
+
+The public batch CLI accepts an optional operator-owned mapping path:
+
+```text
+python anno_save_probe.py SAVE_OR_DIRECTORY --guid-mapping path/to/mapping.json
+```
+
+The mapping document is loaded and validated once before save discovery and expensive parsing. An unreadable, malformed, or provenance-incompatible mapping is a command-line error; the parser does not silently continue with partially trusted names.
+
+When `--guid-mapping` is omitted, CLI behavior and `summary.json` diff shape remain unchanged. When it is supplied, only the structural diffs embedded in `summary.json` are enriched through the exact-only mapping layer. Canonical snapshot files remain canonical schema v1 and are not annotated with names, while raw numeric GUID fields in enriched diffs remain unchanged alongside their parallel nullable name fields.
+
+The CLI does not download, discover, select, or infer a real Anno mapping source. Source acquisition and licensing remain operator-owned concerns outside parser execution.
+
 ## Current boundary
 
-This first slice establishes the deterministic mapping/validation/enrichment API and synthetic regression coverage. CLI wiring and selection of a real operator-owned mapping source remain follow-up work under `ASP-P1-2`; until then, normal parser CLI output is unchanged and no real Anno GUID/name claim is established by this repository.
+The repository now provides the deterministic mapping/validation/enrichment API and optional batch-CLI wiring with synthetic regression coverage. Selection and documentation of a real operator-owned mapping source remain open under `ASP-P1-2`; no real Anno GUID/name claim is established by this repository yet.
