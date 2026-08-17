@@ -22,7 +22,7 @@ A mapping is UTF-8 JSON with schema `anno-saves-parser/guid-name-mapping`, schem
 }
 ```
 
-`source`, `source_version`, and `mapping_version` are required non-empty strings. `source_hash` is optional, but when supplied it is preserved in derived output. The repository intentionally does not prescribe a proprietary source asset or acquisition mechanism: an operator may derive a mapping from material they are entitled to use, but proprietary assets or extracted private catalogs must not be committed merely to populate names.
+`source`, `source_version`, and `mapping_version` are required non-empty strings. `source_hash` is optional, but when supplied it is preserved in derived output. The selected real-source path is documented in [`guid-source-selection.md`](./guid-source-selection.md): an operator-owned Anno 1800 installation is the primary evidence source, normalized through a pinned `anno-mods/asset-extractor` release or commit. The core parser still does not acquire or download proprietary source assets, and proprietary assets or extracted private catalogs must not be committed merely to populate names.
 
 Validation also derives `provenance.mapping_content_hash`, a SHA-256 identity over a canonical serialization of every recognized mapping field that can affect GUID/name interpretation: schema/version, normalized provenance, and exact entries. It is generated rather than trusted from operator input. Changing a resolved name or other material mapping value therefore changes the attached identity even when human-readable source/mapping version labels are reused; irrelevant JSON formatting or entry order does not change it.
 
@@ -46,8 +46,8 @@ The mapping document is loaded and validated once before save discovery and expe
 
 When `--guid-mapping` is omitted, CLI behavior and `summary.json` diff shape remain unchanged. When it is supplied, only the structural diffs embedded in `summary.json` are enriched through the exact-only mapping layer. Canonical snapshot files remain canonical schema v1 and are not annotated with names, while raw numeric GUID fields in enriched diffs remain unchanged alongside their parallel nullable name fields.
 
-The CLI does not download, discover, select, or infer a real Anno mapping source. Source acquisition and licensing remain operator-owned concerns outside parser execution.
+The CLI does not download or infer a real Anno mapping source. Source acquisition remains an explicit operator-owned step following [`guid-source-selection.md`](./guid-source-selection.md), outside parser execution.
 
 ## Current boundary
 
-The repository now provides the deterministic mapping/validation/enrichment API and optional batch-CLI wiring with synthetic regression coverage. Selection and documentation of a real operator-owned mapping source remain open under `ASP-P1-2`; no real Anno GUID/name claim is established by this repository yet.
+The repository now provides the deterministic mapping/validation/enrichment API, optional batch-CLI wiring with synthetic regression coverage, and a documented operator-owned real-source path. The converter/export step into mapping schema v1 and validation against operator-owned real data remain open under `ASP-P1-2`; no real Anno GUID/name claim is established by this repository yet.
