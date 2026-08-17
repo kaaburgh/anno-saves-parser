@@ -48,12 +48,14 @@ Keep canonical state explicit and versioned, preserving stable identity, session
 
 ### ASP-P1-2 — GUID/name provenance layer
 
-- **Status:** Open
+- **Status:** Partially implemented
 - **Priority:** Critical
 - **Category:** Observable state / provenance
 - **Depends on:** ASP-P1-1
 
 Resolve relevant GUIDs to human-readable names through an explicit provenance-aware mapping without coupling core parsing to downloaded game assets or guesses. Initial scope should prioritize identities needed to interpret high-frequency stable-ID GUID transitions observed in the private evaluation corpus.
+
+The first implementation slice defines a dependency-free versioned mapping contract with required source/mapping provenance, exact-only GUID resolution, explicit unresolved names, and structural-diff enrichment that preserves raw numeric GUID identity. Synthetic tests cover resolved, unknown, malformed and incompatible-provenance cases. CLI wiring and a documented operator-owned real mapping source remain open; no real Anno GUID/name claim is established yet.
 
 ### ASP-P2-0 — Player-area lifecycle raw events
 
