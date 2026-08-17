@@ -1077,6 +1077,12 @@ def building_key_sort(key: tuple) -> tuple:
     return (*session_identity, area_id, object_id)
 
 
+def area_key_sort(key: tuple) -> tuple:
+    """Sort stable player-area keys by session identity and area ID."""
+    session_identity, area_id = key
+    return (*session_identity, area_id)
+
+
 def _index_state_buildings(state: dict) -> dict:
     indexed = {}
     seen_sessions = set()
@@ -1097,12 +1103,48 @@ def _index_state_buildings(state: dict) -> dict:
     return indexed
 
 
+def _index_state_player_areas(state: dict) -> dict:
+    indexed = {}
+    seen_sessions = set()
+    for session in state["sessions"]:
+        session_identity = session_diff_identity(session)
+        if session_identity in seen_sessions:
+            raise ValueError(
+                "structural diff cannot disambiguate duplicate canonical session identity"
+            )
+        seen_sessions.add(session_identity)
+        for area in session.get("player_areas", []):
+            key = (session_identity, area["area_id"])
+            if key in indexed:
+                raise ValueError(
+                    "structural diff found duplicate player-area identity within a session"
+                )
+            indexed[key] = (session, area)
+    return indexed
+
+
+def _compact_area_event(pair: tuple[dict, dict]) -> dict:
+    session, area = pair
+    event = {
+        "session_guid": session.get("session_guid"),
+        "session_id": session.get("session_id"),
+        "area_id": area["area_id"],
+    }
+    if "map" in session:
+        event["map"] = session["map"]
+    return event
+
+
 def diff_states(prev: dict, curr: dict) -> dict:
     _require_canonical_v1(prev)
     _require_canonical_v1(curr)
     a = _index_state_buildings(prev)
     b = _index_state_buildings(curr)
+    prev_areas = _index_state_player_areas(prev)
+    curr_areas = _index_state_player_areas(curr)
     added_keys = b.keys() - a.keys(); removed_keys = a.keys() - b.keys(); common = a.keys() & b.keys()
+    area_added_keys = curr_areas.keys() - prev_areas.keys()
+    area_removed_keys = prev_areas.keys() - curr_areas.keys()
 
     def compact(pair):
         s,o=pair
@@ -1110,6 +1152,8 @@ def diff_states(prev: dict, curr: dict) -> dict:
                 "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
     added=[compact(b[k]) for k in sorted(added_keys, key=building_key_sort)]
     removed=[compact(a[k]) for k in sorted(removed_keys, key=building_key_sort)]
+    area_added=[_compact_area_event(curr_areas[k]) for k in sorted(area_added_keys, key=area_key_sort)]
+    area_removed=[_compact_area_event(prev_areas[k]) for k in sorted(area_removed_keys, key=area_key_sort)]
     moved=[]; changed=[]; guid_changed=[]; direction_changed=[]
     for k in sorted(common, key=building_key_sort):
         sa, oa = a[k]; sb, ob = b[k]
@@ -1148,10 +1192,12 @@ def diff_states(prev: dict, curr: dict) -> dict:
         "from":prev["source"]["save_name"],"to":curr["source"]["save_name"],
         "added_count":len(added),"removed_count":len(removed),"moved_count":len(moved),"component_changed_count":len(changed),
         "guid_changed_count":len(guid_changed),"direction_changed_count":len(direction_changed),
+        "area_added_count":len(area_added),"area_removed_count":len(area_removed),
         "added_by_guid":{str(k):v for k,v in sorted(by_guid_add.items())},
         "removed_by_guid":{str(k):v for k,v in sorted(by_guid_remove.items())},
         "added":added,"removed":removed,"moved":moved,"component_changed":changed,"guid_changed":guid_changed,
         "direction_changed":direction_changed,
+        "area_added":area_added,"area_removed":area_removed,
     }
 
 

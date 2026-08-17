@@ -59,12 +59,14 @@ The repository defines a dependency-free versioned mapping contract with require
 
 ### ASP-P2-0 — Player-area lifecycle raw events
 
-- **Status:** Open
+- **Status:** Completed and verified
 - **Priority:** Critical
 - **Category:** Structural diff
 - **Depends on:** ASP-P1-1
 
 Emit deterministic observed area-level structural events (for example player-area present→absent / absent→present) before assigning gameplay semantics. Cover synthetic area additions/removals and preserve session/area identity. This closes the observed gap where object additions can appear in a newly present player-owned area without an explicit higher-level raw event.
+
+The implementation emits explicit `area_added` / `area_removed` raw events keyed by canonical session identity plus `area_id`, including deterministic ordering and GUID-less session-map fallback attribution. Area events remain orthogonal to nested object additions/removals and carry no gameplay-semantic interpretation. Synthetic regression coverage and the durable raw-diff contract are present. GitHub Actions PR CI associated with the implementation head verified the generated merge ref against the current base across Python 3.11 and 3.14 on Ubuntu and Windows; the final roadmap-only reconciliation is subject to the same PR CI gate before merge.
 
 ## Semantic timeline MVP
 
