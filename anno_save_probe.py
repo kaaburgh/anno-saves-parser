@@ -29,6 +29,8 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
+from guid_mapping import GuidMappingError, enrich_structural_diff, load_guid_mapping
+
 __version__ = "0.4.0"
 
 CANONICAL_SCHEMA = "anno-saves-parser/canonical-state"
@@ -1732,6 +1734,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     ap.add_argument(
+        "--guid-mapping",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Optional provenance-aware GUID/name mapping JSON used to enrich "
+            "summary diffs; canonical snapshots and numeric GUIDs stay unchanged."
+        ),
+    )
+    ap.add_argument(
         "-o",
         "--output",
         type=Path,
@@ -1753,6 +1764,17 @@ def main(argv: Optional[list[str]] = None) -> None:
     progress.say(f"[start] Anno save tutor probe v{__version__}")
     for item in args.inputs:
         progress.say(f"[start] input: {item}")
+
+    guid_mapping = None
+    if args.guid_mapping is not None:
+        try:
+            guid_mapping = load_guid_mapping(args.guid_mapping)
+        except (OSError, GuidMappingError) as exc:
+            ap.error(f"--guid-mapping {args.guid_mapping}: {exc}")
+        progress.say(
+            f"[mapping] loaded {len(guid_mapping['entries'])} exact GUID name(s) "
+            f"from {args.guid_mapping}"
+        )
 
     try:
         saves = discover_saves(args.inputs, progress)
@@ -1784,6 +1806,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     states = parse_saves_batch(saves, args.output, progress, active_workers)
 
     diffs = build_adjacent_diffs(states, progress, detailed_timings=args.timings)
+    if guid_mapping is not None:
+        diffs = [enrich_structural_diff(diff, guid_mapping) for diff in diffs]
     with (args.output / "summary.json").open("w", encoding="utf8") as f:
         json.dump(
             build_batch_summary(states, diffs),
