@@ -119,9 +119,6 @@ class Progress:
             return 0
         if ord(char) < 128:
             return 1
-        # Be conservative for non-ASCII glyphs: terminals disagree on ambiguous
-        # width, and over-counting only truncates earlier while under-counting
-        # can make the live line wrap and corrupt cursor accounting.
         return 2
 
     @classmethod
@@ -355,10 +352,10 @@ def rda_entries(path: Path) -> list[dict]:
             f.seek(block)
             flags, count = struct.unpack("<II", f.read(8))
             directory_size, decompressed_size, next_block = struct.unpack("<QQQ", f.read(24))
-            if flags & 0x8:  # deleted block
+            if flags & 0x8:
                 block = next_block
                 continue
-            if flags & 0x6:  # encrypted/memory-resident not expected in save outer archive
+            if flags & 0x6:
                 raise ValueError(f"{path}: unsupported outer RDA block flags {flags:#x}")
             f.seek(block - directory_size)
             directory = f.read(directory_size)
@@ -526,8 +523,6 @@ def extract_sessions(
     progress: Optional[Progress] = None,
 ) -> list[dict]:
     """Locate embedded BBDom session blobs without copying them to temp files."""
-    # ``session_dir`` remains accepted for internal/backward compatibility, but
-    # sessions are now represented as bounded offsets into meta_data_bin.
     del session_dir
     tags_off, _, tags, attrs = bb_meta(meta_data_bin)
     entry_ids = _entry_tag_ids(tags)
@@ -991,7 +986,6 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
             f"data.a7s={data_member['compressed_size'] / 1048576:.2f} MiB"
         )
         progress.say("  [data] reading + decompressing data.a7s")
-    # Avoid a second RDA directory scan: use the member descriptor we already have.
     with save.open("rb") as f:
         f.seek(data_member["offset"])
         compressed_data = f.read(data_member["compressed_size"])
@@ -1075,6 +1069,12 @@ def building_key_sort(key: tuple) -> tuple:
     return (*session_identity, area_id, object_id)
 
 
+def area_key_sort(key: tuple) -> tuple:
+    """Sort stable player-area keys by session identity and area ID."""
+    session_identity, area_id = key
+    return (*session_identity, area_id)
+
+
 def _index_state_buildings(state: dict) -> dict:
     indexed = {}
     seen_sessions = set()
@@ -1095,12 +1095,48 @@ def _index_state_buildings(state: dict) -> dict:
     return indexed
 
 
+def _index_state_player_areas(state: dict) -> dict:
+    indexed = {}
+    seen_sessions = set()
+    for session in state["sessions"]:
+        session_identity = session_diff_identity(session)
+        if session_identity in seen_sessions:
+            raise ValueError(
+                "structural diff cannot disambiguate duplicate canonical session identity"
+            )
+        seen_sessions.add(session_identity)
+        for area in session.get("player_areas", []):
+            key = (session_identity, area["area_id"])
+            if key in indexed:
+                raise ValueError(
+                    "structural diff found duplicate player-area identity within a session"
+                )
+            indexed[key] = (session, area)
+    return indexed
+
+
+def _compact_area_event(pair: tuple[dict, dict]) -> dict:
+    session, area = pair
+    event = {
+        "session_guid": session.get("session_guid"),
+        "session_id": session.get("session_id"),
+        "area_id": area["area_id"],
+    }
+    if "map" in session:
+        event["map"] = session["map"]
+    return event
+
+
 def diff_states(prev: dict, curr: dict) -> dict:
     _require_canonical_v1(prev)
     _require_canonical_v1(curr)
     a = _index_state_buildings(prev)
     b = _index_state_buildings(curr)
+    prev_areas = _index_state_player_areas(prev)
+    curr_areas = _index_state_player_areas(curr)
     added_keys = b.keys() - a.keys(); removed_keys = a.keys() - b.keys(); common = a.keys() & b.keys()
+    area_added_keys = curr_areas.keys() - prev_areas.keys()
+    area_removed_keys = prev_areas.keys() - curr_areas.keys()
 
     def compact(pair):
         s,o=pair
@@ -1108,6 +1144,8 @@ def diff_states(prev: dict, curr: dict) -> dict:
                 "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
     added=[compact(b[k]) for k in sorted(added_keys, key=building_key_sort)]
     removed=[compact(a[k]) for k in sorted(removed_keys, key=building_key_sort)]
+    area_added=[_compact_area_event(curr_areas[k]) for k in sorted(area_added_keys, key=area_key_sort)]
+    area_removed=[_compact_area_event(prev_areas[k]) for k in sorted(area_removed_keys, key=area_key_sort)]
     moved=[]; changed=[]; guid_changed=[]; direction_changed=[]
     for k in sorted(common, key=building_key_sort):
         sa, oa = a[k]; sb, ob = b[k]
@@ -1146,10 +1184,12 @@ def diff_states(prev: dict, curr: dict) -> dict:
         "from":prev["source"]["save_name"],"to":curr["source"]["save_name"],
         "added_count":len(added),"removed_count":len(removed),"moved_count":len(moved),"component_changed_count":len(changed),
         "guid_changed_count":len(guid_changed),"direction_changed_count":len(direction_changed),
+        "area_added_count":len(area_added),"area_removed_count":len(area_removed),
         "added_by_guid":{str(k):v for k,v in sorted(by_guid_add.items())},
         "removed_by_guid":{str(k):v for k,v in sorted(by_guid_remove.items())},
         "added":added,"removed":removed,"moved":moved,"component_changed":changed,"guid_changed":guid_changed,
         "direction_changed":direction_changed,
+        "area_added":area_added,"area_removed":area_removed,
     }
 
 
@@ -1303,8 +1343,6 @@ def select_from(saves: list[Path], start: Optional[str]) -> list[Path]:
     if not start:
         return saves
 
-    # YYYY-MM-DD means the first save whose internal LastModTime date is
-    # on or after this local calendar day; filesystem mtime is fallback only.
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
         try:
             wanted = date.fromisoformat(start)
@@ -1335,7 +1373,6 @@ def select_from(saves: list[Path], start: Optional[str]) -> list[Path]:
             raise ValueError(f"No saves found on or after {wanted}{suffix}")
         return selected
 
-    # Save names are accepted with or without .a7s, case-insensitively.
     needle = start.casefold()
     needle_stem = Path(start).stem.casefold()
     index = next(
@@ -1372,7 +1409,6 @@ def print_save_list(saves: list[Path]) -> None:
             f"{i:4d}  {modified:%Y-%m-%d %H:%M:%S %z}  {size_mb:7.2f} MB  "
             f"{p.name}  [{source}]"
         )
-
 
 
 def _positive_worker_count(value: str) -> int:
@@ -1505,9 +1541,6 @@ def validate_canonical_output_names(saves: list[Path]) -> None:
     seen: dict[str, Path] = {}
     for save in saves:
         filename = canonical_output_filename(save)
-        # Compare independently of the host OS: the output directory may live on
-        # a case-insensitive or Unicode-normalizing volume even when Python itself is
-        # running on POSIX. Rejecting conservatively is safer than silent overwrite.
         key = unicodedata.normalize("NFC", filename).casefold()
         previous = seen.get(key)
         if previous is not None:
@@ -1629,9 +1662,6 @@ def parse_saves_parallel(
                 submit(next_index)
                 next_index += 1
     except BaseException as exc:
-        # Future.cancel() cannot stop work that is already running. Surface the
-        # failure immediately, then keep the cleanup wait observable instead of
-        # blocking silently inside executor.shutdown(wait=True).
         cleanup_pending = set()
         for future in futures:
             if not future.cancel():
