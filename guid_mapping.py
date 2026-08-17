@@ -6,6 +6,7 @@ remain the canonical identity; human-readable names are optional derived evidenc
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -34,12 +35,32 @@ def _require_nonempty_string(value: Any, field: str) -> str:
     return value
 
 
+def _mapping_content_hash(
+    provenance: dict[str, str], entries: dict[int, str]
+) -> str:
+    """Return a stable content identity for all fields that affect resolution."""
+    material_document = {
+        "schema": GUID_MAPPING_SCHEMA,
+        "schema_version": GUID_MAPPING_SCHEMA_VERSION,
+        "provenance": provenance,
+        "entries": {str(guid): entries[guid] for guid in sorted(entries)},
+    }
+    encoded = json.dumps(
+        material_document,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
 def validate_guid_mapping(document: dict[str, Any]) -> dict[str, Any]:
     """Validate and normalize one mapping document.
 
     Returned ``entries`` are keyed by integer GUID for exact lookup. The returned
     provenance block is safe to attach to derived output; it contains no source
-    asset payloads.
+    asset payloads and includes a digest of every mapping field that affects name
+    resolution.
     """
     if not isinstance(document, dict):
         raise GuidMappingError("mapping document must be a JSON object")
@@ -83,6 +104,9 @@ def validate_guid_mapping(document: dict[str, Any]) -> dict[str, Any]:
             raise GuidMappingError(f"duplicate normalized GUID: {guid}")
         entries[guid] = name
 
+    normalized_provenance["mapping_content_hash"] = _mapping_content_hash(
+        normalized_provenance, entries
+    )
     return {
         "schema": GUID_MAPPING_SCHEMA,
         "schema_version": GUID_MAPPING_SCHEMA_VERSION,

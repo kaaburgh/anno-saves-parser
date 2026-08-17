@@ -53,6 +53,39 @@ class GuidMappingTests(unittest.TestCase):
         self.assertEqual(
             enriched["guid_mapping"]["provenance"]["source_version"], "fixture-1"
         )
+        self.assertRegex(
+            enriched["guid_mapping"]["provenance"]["mapping_content_hash"],
+            r"^sha256:[0-9a-f]{64}$",
+        )
+
+    def test_mapping_content_hash_binds_resolved_names(self):
+        first = self.mapping_document()
+        second = self.mapping_document()
+        second["entries"]["1001"] = "Different Synthetic Residence"
+
+        first_mapping = validate_guid_mapping(first)
+        second_mapping = validate_guid_mapping(second)
+
+        self.assertEqual(
+            first_mapping["provenance"]["mapping_version"],
+            second_mapping["provenance"]["mapping_version"],
+        )
+        self.assertNotEqual(
+            first_mapping["provenance"]["mapping_content_hash"],
+            second_mapping["provenance"]["mapping_content_hash"],
+        )
+
+    def test_mapping_content_hash_is_stable_across_entry_order(self):
+        first = self.mapping_document()
+        second = self.mapping_document()
+        second["entries"] = {
+            "2002": "Synthetic Factory",
+            "1001": "Synthetic Residence",
+        }
+        self.assertEqual(
+            validate_guid_mapping(first)["provenance"]["mapping_content_hash"],
+            validate_guid_mapping(second)["provenance"]["mapping_content_hash"],
+        )
 
     def test_rejects_incompatible_schema_and_missing_provenance(self):
         bad_schema = self.mapping_document()
@@ -94,6 +127,10 @@ class GuidMappingTests(unittest.TestCase):
             path.write_text(json.dumps(self.mapping_document()), encoding="utf8")
             mapping = load_guid_mapping(path)
             self.assertEqual(mapping["entries"][2002], "Synthetic Factory")
+            self.assertRegex(
+                mapping["provenance"]["mapping_content_hash"],
+                r"^sha256:[0-9a-f]{64}$",
+            )
 
 
 if __name__ == "__main__":
