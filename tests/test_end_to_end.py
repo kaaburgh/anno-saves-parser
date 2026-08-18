@@ -8,11 +8,15 @@ import unittest
 import zlib
 from pathlib import Path
 
-import anno_save_probe as probe
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CLI = PROJECT_ROOT / "anno_save_probe.py"
+
+# Fixture-format constants are intentionally independent of production parser
+# constants so this regression fails if producer and consumer definitions drift.
+FIXTURE_RDA_MAGIC = b"Resource File V2.2"
+FIXTURE_BBDOM_V3_MAGIC = bytes.fromhex("08000000fdffffff")
+FIXTURE_PAD_BLOCK = 8
 
 
 def _record_tag(ident):
@@ -24,7 +28,7 @@ def _record_end():
 
 
 def _record_attr(ident, value):
-    padding = (-len(value)) % probe.PAD_BLOCK
+    padding = (-len(value)) % FIXTURE_PAD_BLOCK
     return struct.pack("<ii", len(value), ident) + value + (b"\x00" * padding)
 
 
@@ -41,7 +45,7 @@ def _filedb(records, tags, attrs):
     tag_dict = _dictionary(tags)
     attrs_off = tags_off + len(tag_dict)
     attr_dict = _dictionary(attrs)
-    trailer = struct.pack("<ii", tags_off, attrs_off) + probe.BBDOM_V3_MAGIC
+    trailer = struct.pack("<ii", tags_off, attrs_off) + FIXTURE_BBDOM_V3_MAGIC
     return body + tag_dict + attr_dict + trailer
 
 
@@ -144,7 +148,7 @@ def _rda_member_name(name):
 
 
 def _rda_archive(members):
-    prefix_size = len(probe.RDA_MAGIC) + 766 + 8
+    prefix_size = len(FIXTURE_RDA_MAGIC) + 766 + 8
     payload = bytearray()
     entries = []
     for name, data in members:
@@ -156,7 +160,7 @@ def _rda_archive(members):
         )
     directory = b"".join(entries)
     block_offset = prefix_size + len(payload) + len(directory)
-    header = probe.RDA_MAGIC + (b"\x00" * 766) + struct.pack("<Q", block_offset)
+    header = FIXTURE_RDA_MAGIC + (b"\x00" * 766) + struct.pack("<Q", block_offset)
     block = struct.pack("<IIQQQ", 0, len(entries), len(directory), len(directory), 0)
     return header + bytes(payload) + directory + block
 
