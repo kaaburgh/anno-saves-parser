@@ -3,7 +3,7 @@
 
 Project: **Anno 1800 save parser** (`deterministic proprietary-save reverse engineering and semantic timeline`)
 
-Profiles compiled into this contract: core, reverse-engineering, proprietary-target.
+Profiles compiled into this contract: core, reverse-engineering, proprietary-target, unattended-agent-cycle.
 
 Read this file before planning or changing the repository. The live roadmap is [`ROADMAP.md`](./ROADMAP.md). For operational details read [`docs/agent-playbook.md`](./docs/agent-playbook.md); for roadmap changes read [`docs/roadmap-authoring.md`](./docs/roadmap-authoring.md).
 
@@ -82,6 +82,10 @@ Treat operator-supplied proprietary target trees as immutable evidence inputs. V
 When a target machine is required, prepare the smallest reproducible one-shot experiment. Prefer a script/tool that verifies the target/fixture identity, executes one bounded scenario, and emits a self-contained artifact containing only safe metadata, hashes/version identifiers, configuration, bounded logs, and the requested captures/dumps.
 
 The detached machine-readable run record should have an explicit schema/version and preserve enough provenance to replay and audit the evidence without redistributing the target: target/fixture identities, scenario/config identity, harness/tool versions or hashes, material environment facts, termination result, semantic oracle results, and artifact names/digests. Sanitize private host paths, user identifiers, credentials, and unrelated environment data. Do not embed proprietary payload bytes in the run record merely for convenience.
+
+## Unattended agent cycles
+
+When `unattended-agent-cycle` is selected, every unattended scheduled run must read and follow [`docs/agent-cycle-run.md`](./docs/agent-cycle-run.md) before selecting work, writing commits, requesting review, or reporting a verdict. Treat the committed cycle contract as immutable for the duration of that run; changes to the contract are ordinary roadmap work reviewed in a separate cycle.
 
 ## Project-specific parser contract
 

@@ -11,8 +11,9 @@
     ".github/copilot-instructions.md": "6fe72eca1eab8a997562d448c54a6bb8d4f7726186a07dfc6d328022a9b03bf2",
     ".github/pull_request_template.md": "2788c12680eb98b6e874adb43b2038572104a8e70611d4bd0018cd5810136100",
     ".github/workflows/agentic-repo-check.yml": "3851fb3a320ed3e7055dc42d2eca682491d1600e07aabba28ec03413d735a9c3",
-    "AGENTS.md": "c9b12bb5c5ec95d5bb22a83f43d76b48d9466638e8c34f9ecb1f2d6483796589",
+    "AGENTS.md": "86fbe80ffb5119f47ecc768ad221f2a53ac7bbf807500606933b576b0323de84",
     "CLAUDE.md": "e68ff4b91505b9ca79f6f6656439c0c73a3448581f92407f25ee20aba9320088",
+    "docs/agent-cycle-run.md": "41396e12f04190e7513a5573e692bf93158751e60ab41b83aa4a2f30be09eef0",
     "docs/agent-playbook.md": "265ed72406a8cfb712ec81e25a5ac09240d590b2a06c7e9639997e0084fd9e02",
     "docs/experiments/README.md": "dccd1781eb4122aebbd63673790b6a6a362cb0f2a9d2f5f2050f7ff7edc025ef",
     "docs/re/README.md": "afbf798d9885bde2df709e8dc1437b88cd64e03c9afda833d6e2c5b58231518e",
@@ -22,7 +23,8 @@
   "profiles": [
     "core",
     "reverse-engineering",
-    "proprietary-target"
+    "proprietary-target",
+    "unattended-agent-cycle"
   ],
   "project": {
     "kind": "deterministic proprietary-save reverse engineering and semantic timeline",
