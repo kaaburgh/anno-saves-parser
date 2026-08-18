@@ -3,6 +3,7 @@ profiles = [
   "core",
   "reverse-engineering",
   "proprietary-target",
+  "unattended-agent-cycle",
 ]
 
 [project]
