@@ -22,7 +22,7 @@ The project started as a feasibility probe for a personal AI tutor: instead of f
 - emit immediate progress plus ~1-second heartbeats during long operations;
 - keep per-save parse progress compact in interactive terminals with one live status line, while preserving ordinary line-oriented logs for redirects, pipes, CI, and terminals without usable cursor-control support.
 
-Canonical schema v1 is documented in [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md). It is intentionally incomplete in breadth: population, workforce, inventory, production/demand, trade routes, operator-side GUID mapping export/real-data validation, and semantic episode reconstruction belong to follow-up work and may be added as compatible optional state where possible.
+Canonical schema v1 is documented in [docs/canonical-schema-v1.md](docs/canonical-schema-v1.md). It is intentionally incomplete in breadth: population, workforce, inventory, production/demand, trade routes, and semantic episode reconstruction belong to follow-up work and may be added as compatible optional state where possible. The optional operator-side GUID mapping exporter is implemented; `ASP-P1-2` still requires an operator-owned real-data export with the required provenance plus independent corroboration before any real Anno GUID/name claim is established.
 
 ## Requirements
 

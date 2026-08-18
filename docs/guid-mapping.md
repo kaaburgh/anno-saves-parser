@@ -50,4 +50,4 @@ The CLI does not download or infer a real Anno mapping source. Source acquisitio
 
 ## Current boundary
 
-The repository now provides the deterministic mapping/validation/enrichment API, optional batch-CLI wiring with synthetic regression coverage, and a documented operator-owned real-source path. The converter/export step into mapping schema v1 and validation against operator-owned real data remain open under `ASP-P1-2`; no real Anno GUID/name claim is established by this repository yet.
+The repository now provides the deterministic mapping/validation/enrichment API, optional batch-CLI wiring with synthetic regression coverage, a documented operator-owned real-source path, and `guid_mapping_export.py` as the deterministic operator-side exporter into mapping schema v1. The remaining `ASP-P1-2` evidence step is an operator-owned real-data export with the required provenance plus independent corroboration of representative mappings; no real Anno GUID/name claim is established by this repository yet.
