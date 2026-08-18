@@ -21,12 +21,14 @@ The private v0.3.3 corpus summarized in issue #20 is evidence for prioritization
 
 ### ASP-P0-1 — Dependency-free save parsing and batch CLI
 
-- **Status:** Completed and verified
+- **Status:** Implemented, validation incomplete
 - **Priority:** High
 - **Category:** Foundation
 - **Depends on:** none
 
 Parse current `.a7s` saves through RDA, zlib and FileDB v3; discover/sort autosaves by internal timestamp; support the public batch CLI; produce canonical snapshots and raw structural diffs; keep long stages observable.
+
+Independent audit #40 found that the container/ingest path had no committed end-to-end regression despite its load-bearing role. Issue #41 adds a fully synthetic `.a7s` oracle that exercises the real CLI through RDA, zlib, top-level FileDB/session discovery, canonical output, internal-timestamp listing, adjacent diffs, and a genuine two-worker process pool on the existing CI matrix. This improves reproducible coverage without establishing real-target correctness; audit findings around recognition, malformed ingest, and metadata fallback remain open, so the item is no longer described as fully verified.
 
 ### ASP-P0-2 — Repository baseline and CI
 
