@@ -437,14 +437,22 @@ def _read_dictionary(f: BinaryIO, offset: int) -> dict[int, str]:
 
 
 def bb_meta(path: Path) -> tuple[int, int, dict[int, str], dict[int, str]]:
+    file_size = path.stat().st_size
+    if file_size < 16:
+        raise ValueError("truncated FileDB trailer")
     with path.open("rb") as f:
-        f.seek(-16, 2)
+        f.seek(file_size - 16)
         trailer = f.read(16)
+        if len(trailer) != 16:
+            raise ValueError("truncated FileDB trailer")
         tags_off, attrs_off = struct.unpack("<ii", trailer[:8])
         if trailer[8:] != BBDOM_V3_MAGIC:
             raise ValueError(f"{path}: not FileDB/BBDom v3")
-        tags = _read_dictionary(f, tags_off)
-        attrs = _read_dictionary(f, attrs_off)
+        data_limit = file_size - 16
+        if not (0 <= tags_off < data_limit and 0 <= attrs_off < data_limit):
+            raise ValueError("FileDB dictionary offset outside file")
+        tags = _read_dictionary_at(f, 0, tags_off, data_limit)
+        attrs = _read_dictionary_at(f, 0, attrs_off, data_limit)
     return tags_off, attrs_off, tags, attrs
 
 
