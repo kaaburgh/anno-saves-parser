@@ -206,9 +206,10 @@ def resolve_guid(mapping: dict[str, Any], guid: int | None) -> str | None:
 def enrich_structural_diff(diff: dict[str, Any], mapping: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of a raw structural diff annotated with exact GUID names.
 
-    The raw numeric GUID fields remain untouched. Every GUID-bearing event receives
-    a parallel name field whose value is ``None`` when the mapping has no exact
-    entry, making unresolved identities explicit rather than heuristic.
+    The raw numeric GUID fields remain untouched. Every top-level event dictionary
+    with ``guid`` and/or ``from_guid``/``to_guid`` fields receives the corresponding
+    parallel name field, so enrichment follows producer content rather than a
+    hardcoded list of structural-diff section names.
     """
     out = copy.deepcopy(diff)
     out["guid_mapping"] = {
@@ -216,10 +217,16 @@ def enrich_structural_diff(diff: dict[str, Any], mapping: dict[str, Any]) -> dic
         "schema_version": mapping["schema_version"],
         "provenance": copy.deepcopy(mapping["provenance"]),
     }
-    for section in ("added", "removed", "moved", "component_changed", "direction_changed"):
-        for event in out.get(section, []):
-            event["guid_name"] = resolve_guid(mapping, event.get("guid"))
-    for event in out.get("guid_changed", []):
-        event["from_guid_name"] = resolve_guid(mapping, event.get("from_guid"))
-        event["to_guid_name"] = resolve_guid(mapping, event.get("to_guid"))
+    for section in out.values():
+        if not isinstance(section, list):
+            continue
+        for event in section:
+            if not isinstance(event, dict):
+                continue
+            if "guid" in event:
+                event["guid_name"] = resolve_guid(mapping, event.get("guid"))
+            if "from_guid" in event:
+                event["from_guid_name"] = resolve_guid(mapping, event.get("from_guid"))
+            if "to_guid" in event:
+                event["to_guid_name"] = resolve_guid(mapping, event.get("to_guid"))
     return out

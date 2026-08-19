@@ -76,6 +76,7 @@ class MovementDiffTests(unittest.TestCase):
             [
                 {
                     "session_guid": 123456,
+                    "session_id": 7,
                     "area_id": 42,
                     "id": 9001,
                     "guid": 777001,

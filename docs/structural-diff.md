@@ -2,6 +2,12 @@
 
 The structural diff compares two canonical state schema v1 documents. It is deliberately pre-semantic: every event describes an observed structural change only and must not be read as a gameplay judgement.
 
+## Object event attribution
+
+Every object-level event in `added`, `removed`, `moved`, `component_changed`, `guid_changed`, and `direction_changed` carries the same canonical session attribution fields: `session_guid`, `session_id`, and optional `map` when that field is present on the canonical session. This preserves the same fallback identity used by structural indexing, so GUID-less sessions remain attributable through their `(session_id, map)` evidence instead of losing context in selected event sections.
+
+GUID/name enrichment follows event content rather than structural-diff section names. Any top-level event dictionary carrying `guid` receives a parallel `guid_name`; `from_guid` and `to_guid` receive `from_guid_name` and `to_guid_name`. Raw numeric GUID fields remain unchanged. Adding another GUID-bearing event section therefore does not require a separate consumer allowlist merely to preserve exact mapping enrichment.
+
 ## Player-area lifecycle events
 
 The diff emits two explicit player-area lifecycle sections:
