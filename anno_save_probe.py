@@ -384,11 +384,21 @@ def rda_entries(path: Path) -> list[dict]:
     return entries
 
 
+def _required_rda_member(entries: list[dict], path: Path, name: str) -> dict:
+    matches = [entry for entry in entries if entry["name"] == name]
+    if not matches:
+        raise ValueError(f"{path}: required RDA member {name!r} not found")
+    if len(matches) != 1:
+        raise ValueError(
+            f"{path}: required RDA member {name!r} is ambiguous: "
+            f"found {len(matches)} entries"
+        )
+    return matches[0]
+
+
 def extract_rda_member(path: Path, name: str) -> bytes:
     entries = rda_entries(path)
-    e = next((x for x in entries if x["name"] == name), None)
-    if e is None:
-        raise KeyError(f"{name} not found in {path}")
+    e = _required_rda_member(entries, path, name)
     with path.open("rb") as f:
         f.seek(e["offset"])
         raw = f.read(e["compressed_size"])
@@ -993,7 +1003,7 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
     if progress is not None:
         progress.say(f"  [rda] reading archive directory ({save.stat().st_size / 1048576:.2f} MiB)")
     outer = rda_entries(save)
-    data_member = next(x for x in outer if x["name"] == "data.a7s")
+    data_member = _required_rda_member(outer, save, "data.a7s")
     if progress is not None:
         names = ", ".join(e["name"] for e in outer)
         progress.say(
