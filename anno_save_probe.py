@@ -1102,6 +1102,17 @@ def session_diff_identity(session: dict) -> tuple:
     )
 
 
+def _session_identity_fields(session: dict) -> dict:
+    """Project canonical session attribution consistently into raw diff events."""
+    fields = {
+        "session_guid": session.get("session_guid"),
+        "session_id": session.get("session_id"),
+    }
+    if "map" in session:
+        fields["map"] = session["map"]
+    return fields
+
+
 def building_key(session: dict, obj: dict) -> tuple:
     return (session_diff_identity(session), obj["area_id"], obj["id"])
 
@@ -1160,14 +1171,10 @@ def _index_state_player_areas(state: dict) -> dict:
 
 def _compact_area_event(pair: tuple[dict, dict]) -> dict:
     session, area = pair
-    event = {
-        "session_guid": session.get("session_guid"),
-        "session_id": session.get("session_id"),
+    return {
+        **_session_identity_fields(session),
         "area_id": area["area_id"],
     }
-    if "map" in session:
-        event["map"] = session["map"]
-    return event
 
 
 def diff_states(prev: dict, curr: dict) -> dict:
@@ -1182,9 +1189,15 @@ def diff_states(prev: dict, curr: dict) -> dict:
     area_removed_keys = prev_areas.keys() - curr_areas.keys()
 
     def compact(pair):
-        s,o=pair
-        return {"session_guid":s.get("session_guid"),"session_id":s.get("session_id"),"area_id":o["area_id"],
-                "id":o["id"],"guid":o["guid"],"position":o.get("position"),"components":o.get("components",[])}
+        s, o = pair
+        return {
+            **_session_identity_fields(s),
+            "area_id": o["area_id"],
+            "id": o["id"],
+            "guid": o["guid"],
+            "position": o.get("position"),
+            "components": o.get("components", []),
+        }
     added=[compact(b[k]) for k in sorted(added_keys, key=building_key_sort)]
     removed=[compact(a[k]) for k in sorted(removed_keys, key=building_key_sort)]
     area_added=[_compact_area_event(curr_areas[k]) for k in sorted(area_added_keys, key=area_key_sort)]
@@ -1194,8 +1207,7 @@ def diff_states(prev: dict, curr: dict) -> dict:
         sa, oa = a[k]; sb, ob = b[k]
         if oa.get("guid") != ob.get("guid"):
             guid_changed.append({
-                "session_guid": sb.get("session_guid"),
-                "session_id": sb.get("session_id"),
+                **_session_identity_fields(sb),
                 "area_id": ob["area_id"],
                 "id": ob["id"],
                 "from_guid": oa.get("guid"),
@@ -1203,25 +1215,34 @@ def diff_states(prev: dict, curr: dict) -> dict:
                 "components": ob.get("components", []),
             })
         if oa.get("position") != ob.get("position"):
-            moved.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
-                          "from":oa.get("position"),"to":ob.get("position"),"components":ob.get("components",[])})
+            moved.append({
+                **_session_identity_fields(sb),
+                "area_id": ob["area_id"],
+                "id": ob["id"],
+                "guid": ob["guid"],
+                "from": oa.get("position"),
+                "to": ob.get("position"),
+                "components": ob.get("components", []),
+            })
         if oa.get("direction") != ob.get("direction"):
-            event = {
-                "session_guid": sb.get("session_guid"),
-                "session_id": sb.get("session_id"),
+            direction_changed.append({
+                **_session_identity_fields(sb),
                 "area_id": ob["area_id"],
                 "id": ob["id"],
                 "guid": ob["guid"],
                 "from_direction": oa.get("direction"),
                 "to_direction": ob.get("direction"),
                 "components": ob.get("components", []),
-            }
-            if "map" in sb:
-                event["map"] = sb["map"]
-            direction_changed.append(event)
+            })
         if oa.get("components") != ob.get("components"):
-            changed.append({"session_guid":sb.get("session_guid"),"area_id":ob["area_id"],"id":ob["id"],"guid":ob["guid"],
-                            "from_components":oa.get("components",[]),"to_components":ob.get("components",[])})
+            changed.append({
+                **_session_identity_fields(sb),
+                "area_id": ob["area_id"],
+                "id": ob["id"],
+                "guid": ob["guid"],
+                "from_components": oa.get("components", []),
+                "to_components": ob.get("components", []),
+            })
     by_guid_add=Counter(x["guid"] for x in added); by_guid_remove=Counter(x["guid"] for x in removed)
     return {
         "from":prev["source"]["save_name"],"to":curr["source"]["save_name"],
