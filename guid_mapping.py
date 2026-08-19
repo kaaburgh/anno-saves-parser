@@ -8,12 +8,24 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 GUID_MAPPING_SCHEMA = "anno-saves-parser/guid-name-mapping"
 GUID_MAPPING_SCHEMA_VERSION = 1
 _MAX_GUID = 0xFFFFFFFF
+_SHA256_RE = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+_PROVENANCE_KEYS = {
+    "source",
+    "source_version",
+    "mapping_version",
+    "source_hash",
+    "extractor",
+    "converter",
+    "input_hashes",
+}
+_PRODUCER_KEYS = {"identity", "artifact_hash"}
 
 
 class GuidMappingError(ValueError):
@@ -35,10 +47,47 @@ def _require_nonempty_string(value: Any, field: str) -> str:
     return value
 
 
+def _require_sha256(value: Any, field: str) -> str:
+    digest = _require_nonempty_string(value, field)
+    if _SHA256_RE.fullmatch(digest) is None:
+        raise GuidMappingError(f"{field} must be sha256:<64 hex characters>")
+    return digest.lower()
+
+
+def _normalize_producer(value: Any, field: str) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise GuidMappingError(f"{field} must be a JSON object")
+    unknown = sorted(set(value) - _PRODUCER_KEYS)
+    if unknown:
+        raise GuidMappingError(f"unsupported {field} field(s): {', '.join(unknown)}")
+    normalized = {
+        "identity": _require_nonempty_string(value.get("identity"), f"{field}.identity")
+    }
+    if "artifact_hash" in value:
+        normalized["artifact_hash"] = _require_sha256(
+            value["artifact_hash"], f"{field}.artifact_hash"
+        )
+    return normalized
+
+
+def _normalize_input_hashes(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict) or not value:
+        raise GuidMappingError("provenance.input_hashes must be a non-empty JSON object")
+    normalized: dict[str, str] = {}
+    for raw_label, raw_hash in value.items():
+        label = _require_nonempty_string(raw_label, "provenance.input_hashes key")
+        if label in normalized:
+            raise GuidMappingError(f"duplicate provenance input label: {label!r}")
+        normalized[label] = _require_sha256(
+            raw_hash, f"provenance.input_hashes[{label!r}]"
+        )
+    return {label: normalized[label] for label in sorted(normalized)}
+
+
 def _mapping_content_hash(
-    provenance: dict[str, str], entries: dict[int, str]
+    provenance: dict[str, Any], entries: dict[int, str]
 ) -> str:
-    """Return a stable content identity for all fields that affect resolution."""
+    """Return a stable content identity for all recognized semantic inputs."""
     material_document = {
         "schema": GUID_MAPPING_SCHEMA,
         "schema_version": GUID_MAPPING_SCHEMA_VERSION,
@@ -59,8 +108,8 @@ def validate_guid_mapping(document: dict[str, Any]) -> dict[str, Any]:
 
     Returned ``entries`` are keyed by integer GUID for exact lookup. The returned
     provenance block is safe to attach to derived output; it contains no source
-    asset payloads and includes a digest of every mapping field that affects name
-    resolution.
+    asset payloads and includes a digest of every recognized mapping field that can
+    affect interpretation.
     """
     if not isinstance(document, dict):
         raise GuidMappingError("mapping document must be a JSON object")
@@ -75,7 +124,13 @@ def validate_guid_mapping(document: dict[str, Any]) -> dict[str, Any]:
     provenance = document.get("provenance")
     if not isinstance(provenance, dict):
         raise GuidMappingError("provenance must be a JSON object")
-    normalized_provenance = {
+    unknown_provenance = sorted(set(provenance) - _PROVENANCE_KEYS)
+    if unknown_provenance:
+        raise GuidMappingError(
+            "unsupported provenance field(s): " + ", ".join(unknown_provenance)
+        )
+
+    normalized_provenance: dict[str, Any] = {
         "source": _require_nonempty_string(provenance.get("source"), "provenance.source"),
         "source_version": _require_nonempty_string(
             provenance.get("source_version"), "provenance.source_version"
@@ -87,6 +142,18 @@ def validate_guid_mapping(document: dict[str, Any]) -> dict[str, Any]:
     if "source_hash" in provenance:
         normalized_provenance["source_hash"] = _require_nonempty_string(
             provenance["source_hash"], "provenance.source_hash"
+        )
+    if "extractor" in provenance:
+        normalized_provenance["extractor"] = _normalize_producer(
+            provenance["extractor"], "provenance.extractor"
+        )
+    if "converter" in provenance:
+        normalized_provenance["converter"] = _normalize_producer(
+            provenance["converter"], "provenance.converter"
+        )
+    if "input_hashes" in provenance:
+        normalized_provenance["input_hashes"] = _normalize_input_hashes(
+            provenance["input_hashes"]
         )
 
     raw_entries = document.get("entries")

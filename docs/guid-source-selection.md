@@ -4,9 +4,9 @@ This document records the source/acquisition decision for real Anno 1800 GUID/na
 
 ## Decision
 
-Use an **operator-owned Anno 1800 installation** as the primary source of real GUID/name evidence. Extract and normalize the relevant asset/localization data locally with a **pinned `anno-mods/asset-extractor` release or commit**. Do not download or commit extracted proprietary catalogs merely to populate names.
+Use an operator-controlled Anno 1800 installation as the primary source of real GUID/name evidence. Extract and normalize the relevant asset/localization data locally with a pinned `anno-mods/asset-extractor` release or commit. Do not add extracted game catalogs to this repository merely to populate names.
 
-As of this investigation, `anno-mods/asset-extractor` release `3.0` is the current published release inspected. Its documentation states that it extracts from the configured local game installation, parses Anno 1800 `assets.xml`, resolves asset structure, and supports localization. The extractor code is MIT-licensed. Those facts make it a suitable reproducible acquisition/normalization tool, while the game files and extracted data remain separate operator-owned proprietary inputs.
+As of this investigation, `anno-mods/asset-extractor` release `3.0` is the published release inspected. Its documentation states that it extracts from the configured local game installation, parses Anno 1800 `assets.xml`, resolves asset structure, and supports localization. The extractor code is MIT-licensed. Those facts make it a suitable reproducible acquisition/normalization tool, while the game files and extracted data remain separate operator inputs.
 
 This is a source-path decision, not target validation. A real mapping still requires an operator run against an exact game installation plus validation of the resulting mapping evidence.
 
@@ -31,12 +31,14 @@ A match against one of these references may corroborate an operator-derived resu
 Before names produced through this path are treated as real target evidence, preserve enough information to reject stale or semantically incompatible output:
 
 1. exact Anno 1800 game/build identity available to the operator;
-2. SHA-256 identities for every extracted asset/localization input that materially affects GUID/name interpretation;
+2. SHA-256 identities for every extracted asset/localization input that materially affects GUID/name interpretation, recorded under stable logical labels;
 3. exact `anno-mods/asset-extractor` release or commit identity and, when practical, the acquired artifact digest;
-4. converter/export implementation identity used to produce mapping schema v1;
-5. the mapping schema/version plus the generated `mapping_content_hash` already enforced by `guid_mapping.py`.
+4. exact converter/export implementation identity and, when practical, its artifact digest;
+5. the mapping schema/version plus the generated `mapping_content_hash` enforced by `guid_mapping.py`.
 
-The repository should consume only the resulting small provenance-aware mapping document when the operator is entitled to retain/share it. Raw RDA content, extracted proprietary XML/catalogs, private saves, and unrelated extracted assets stay outside the repository.
+Mapping schema v1 carries (2)–(4) directly as optional structured `input_hashes`, `extractor`, and `converter` fields. Those recognized fields are preserved in derived output and participate in `mapping_content_hash`; unknown provenance fields fail closed instead of disappearing silently. Existing schema-v1 mappings without the structured fields remain readable for compatibility, but a new real-target evidence run should populate the structured fields above.
+
+The repository should consume only the resulting small provenance-aware mapping document when the operator is entitled to retain/share it. Raw RDA content, extracted game XML/catalogs, saves, and unrelated extracted assets stay outside the repository.
 
 ## Bounded exporter
 
@@ -44,7 +46,7 @@ The repository should consume only the resulting small provenance-aware mapping 
 
 The adapter reads the resolved `AssetCache`, uses the requested localized text when present, falls back only to the extractor's own stable asset name, skips assets for which neither exists, sorts output by numeric GUID, and fails closed on invalid GUIDs, conflicting duplicate GUID/name pairs, malformed provenance, or an empty result. It does not infer a nearby or likely name.
 
-Before running it, create a small local manifest that records every extracted asset/localization input material to GUID/name interpretation and hash that manifest with SHA-256. The manifest itself may contain local paths or proprietary filenames and therefore remains operator-owned; only its digest needs to enter the mapping document. Use a `mapping_version` that names both the pinned extractor revision and this exporter revision, for example `asset-extractor@3.0+guid-export-v1`.
+Before running it, identify every extracted asset/localization input material to GUID/name interpretation and hash each one with SHA-256. Use stable logical labels such as `assets` or `localization-en` in the mapping. A separate operator-local manifest may record path-to-label details when useful, and the legacy `source_hash` can retain a digest of that manifest for compatibility, but it no longer substitutes for the per-input structured hashes required for a new real evidence run.
 
 Choose an output path separate from the pinned extractor checkout and all source paths in its config. The exporter rejects an output that overwrites the config itself or falls within the configured `game_path`, `cache_path`, or `assetbrowser_dir`, and it also protects the extractor checkout. After the mapping document is fully built and validated, it is published through an atomic same-directory replacement so an interrupted write cannot leave a partial mapping at the requested path.
 
@@ -54,15 +56,23 @@ Example, from an environment where the pinned extractor checkout has already com
 python guid_mapping_export.py \
   --asset-extractor-root C:/tools/asset-extractor \
   --config C:/tools/asset-extractor/config.json \
-  --output C:/private/anno1800-guid-mapping.json \
+  --output C:/anno-evidence/guid-mapping.json \
   --language english \
   --source-version <exact-game-build> \
   --source-hash sha256:<manifest-digest> \
-  --mapping-version asset-extractor@3.0+guid-export-v1
+  --mapping-version guid-map-<revision> \
+  --extractor-identity anno-mods/asset-extractor@<release-or-commit> \
+  --extractor-artifact-hash sha256:<optional-extractor-artifact-digest> \
+  --converter-identity anno-saves-parser/guid_mapping_export.py@<commit> \
+  --converter-artifact-hash sha256:<optional-converter-artifact-digest> \
+  --input-hash assets=sha256:<assets-input-digest> \
+  --input-hash localization-en=sha256:<localization-input-digest>
 ```
 
-The output is mapping schema v1 and can be passed to the batch parser with `--guid-mapping`. Keep the generated mapping private unless the operator is entitled to retain/share its derived names. The export command itself does **not** establish a real target claim; that requires executing it on the operator-owned installation, preserving the stated provenance, and independently checking representative GUID/name pairs or another relationship that does not reuse the same derivation.
+The structured producer/input flags are optional at the schema/CLI compatibility boundary, but extractor identity, converter identity, and material per-input hashes are required evidence for the planned real-target run. Artifact hashes remain required only when practical, matching the evidence policy above.
+
+The output is mapping schema v1 and can be passed to the batch parser with `--guid-mapping`. The export command itself does not establish a real target claim; that requires executing it on the operator-controlled installation, preserving the stated provenance, and independently checking representative GUID/name pairs or another relationship that does not reuse the same derivation.
 
 ## Follow-up boundary
 
-Source selection and a deterministic converter/export seam are now prepared, but `ASP-P1-2` is not complete. The remaining bounded evidence step is an operator-owned real-data run with the required provenance plus independent corroboration of representative mappings. Until that run exists, the repository has **no established real Anno GUID/name claim** and downstream semantic work must preserve unresolved names rather than inventing them.
+Source selection, a deterministic converter/export seam, and machine-checkable producer/input provenance are now prepared, but `ASP-P1-2` is not complete. The remaining bounded evidence step is an operator-owned real-data run with the required provenance plus independent corroboration of representative mappings. Until that run exists, the repository has no established real Anno GUID/name claim and downstream semantic work must preserve unresolved names rather than inventing them.
