@@ -21,6 +21,17 @@ Observed facts reduced to structural invariants:
 
 The decoded values are preserved as raw transform state. Axis names, coordinate-system meaning, map/grid units, and higher-level gameplay interpretation remain intentionally unspecified.
 
+## Player-area identity join
+
+Player-area extraction currently combines two separately decoded structural sources into one area-identity space:
+
+- object attribution comes from numeric suffixes of `AreaManager_<N>` tag names;
+- ownership attribution comes from `AreaInfo` → `PassiveTrade` → `AreaID` attribute values.
+
+The parser joins those values as the same `area_id`. Current committed synthetic fixtures deliberately use matching values in both structures, so they establish internal consistency of the implementation and regression contract only. They are **not** independent corroboration that both structures use the same identifier space on the proprietary target. Until independently checked, treat that relationship as an assumption supported by the parser model rather than a separately established target fact.
+
+A bounded target check can upgrade the evidence without committing private data: on exact operator-owned save inputs, independently collect the set of observed `AreaManager_<N>` suffixes and the set of `AreaInfo/PassiveTrade/AreaID` values for the same sessions, preserve only safe aggregate relationship evidence plus target/tool provenance, and verify representative overlap/join behavior. Exact player-state identifiers, save payloads, and private dumps remain local. A synthetic fixture generated from the same parser model does not count as that independent check.
+
 When adding a new format interpretation, record whether it came from:
 
 1. direct observation of local saves;
