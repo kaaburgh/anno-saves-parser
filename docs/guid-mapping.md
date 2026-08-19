@@ -14,7 +14,19 @@ A mapping is UTF-8 JSON with schema `anno-saves-parser/guid-name-mapping`, schem
     "source": "operator-owned-catalog-derivation",
     "source_version": "example-build-id",
     "mapping_version": "example-mapping-revision",
-    "source_hash": "sha256:optional-source-identity"
+    "source_hash": "sha256:optional-source-identity",
+    "extractor": {
+      "identity": "anno-mods/asset-extractor@3.0",
+      "artifact_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "converter": {
+      "identity": "anno-saves-parser/guid_mapping_export.py@<commit>",
+      "artifact_hash": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    },
+    "input_hashes": {
+      "assets": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "localization-en": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    }
   },
   "entries": {
     "1001": "Example name"
@@ -22,17 +34,19 @@ A mapping is UTF-8 JSON with schema `anno-saves-parser/guid-name-mapping`, schem
 }
 ```
 
-`source`, `source_version`, and `mapping_version` are required non-empty strings. `source_hash` is optional, but when supplied it is preserved in derived output. The selected real-source path is documented in [`guid-source-selection.md`](./guid-source-selection.md): an operator-owned Anno 1800 installation is the primary evidence source, normalized through a pinned `anno-mods/asset-extractor` release or commit. The core parser still does not acquire or download proprietary source assets, and proprietary assets or extracted private catalogs must not be committed merely to populate names.
+`source`, `source_version`, and `mapping_version` are required non-empty strings. `source_hash` remains optional and preserves compatibility with existing schema-v1 mappings. `extractor`, `converter`, and `input_hashes` are optional structured provenance extensions within schema v1. Producer objects require an `identity` and may carry an `artifact_hash`; `input_hashes` maps stable logical input labels to exact SHA-256 identities. Structured SHA-256 fields use `sha256:<64 hex>` syntax. Existing schema-v1 mappings that omit all three structured fields remain valid.
 
-Validation also derives `provenance.mapping_content_hash`, a SHA-256 identity over a canonical serialization of every recognized mapping field that can affect GUID/name interpretation: schema/version, normalized provenance, and exact entries. It is generated rather than trusted from operator input. Changing a resolved name or other material mapping value therefore changes the attached identity even when human-readable source/mapping version labels are reused; irrelevant JSON formatting or entry order does not change it.
+The selected real-source path is documented in [`guid-source-selection.md`](./guid-source-selection.md): an operator-owned Anno 1800 installation is the primary evidence source, normalized through a pinned `anno-mods/asset-extractor` release or commit. The core parser still does not acquire or download proprietary source assets, and proprietary assets or extracted private catalogs must not be committed merely to populate names.
 
-The loader fails closed on unsupported schema versions, missing provenance, duplicate JSON keys, non-decimal/out-of-range GUID keys, and empty names. Resolution is exact only. An absent entry yields `None`; no nearest-number, frequency, fuzzy, ordering, or other heuristic fallback is permitted.
+Validation derives `provenance.mapping_content_hash`, a SHA-256 identity over a canonical serialization of every recognized mapping field that can affect GUID/name interpretation: schema/version, normalized provenance, and exact entries. It is generated rather than trusted from operator input. Changing a resolved name, extractor/converter identity, producer artifact hash, or material input hash therefore changes the attached identity even when human-readable source/mapping version labels are reused; irrelevant JSON formatting and object/entry order do not change it.
+
+The loader fails closed on unsupported schema versions, missing provenance, duplicate JSON keys, unknown provenance fields, unknown structured producer fields, malformed structured hashes, non-decimal/out-of-range GUID keys, and empty names. Unknown provenance is rejected rather than silently discarded. Resolution is exact only. An absent entry yields `None`; no nearest-number, frequency, fuzzy, ordering, or other heuristic fallback is permitted.
 
 ## Structural-diff enrichment
 
-`guid_mapping.enrich_structural_diff()` returns a copy of a raw structural diff. It leaves every numeric GUID untouched, adds a `guid_mapping` block containing mapping schema/provenance (including the generated `mapping_content_hash`), and adds parallel nullable name fields to GUID-bearing events (`guid_name`, or `from_guid_name` / `to_guid_name` for GUID transitions).
+`guid_mapping.enrich_structural_diff()` returns a copy of a raw structural diff. It leaves every numeric GUID untouched, adds a `guid_mapping` block containing mapping schema/provenance (including the generated `mapping_content_hash` and any structured producer/input provenance), and adds parallel nullable name fields to GUID-bearing events (`guid_name`, or `from_guid_name` / `to_guid_name` for GUID transitions).
 
-This keeps the evidence boundary explicit: a consumer can always distinguish observed numeric identity from human-readable mapping evidence, can see which mapping revision produced the names, and can bind those derived names to the immutable semantic content identity of that mapping. Canonical schema v1 is unchanged.
+This keeps the evidence boundary explicit: a consumer can always distinguish observed numeric identity from human-readable mapping evidence, can see which mapping revision and machine-checkable producer/input identities produced the names, and can bind those derived names to the immutable semantic content identity of that mapping. Canonical schema v1 is unchanged.
 
 ## Batch CLI integration
 
@@ -50,4 +64,4 @@ The CLI does not download or infer a real Anno mapping source. Source acquisitio
 
 ## Current boundary
 
-The repository now provides the deterministic mapping/validation/enrichment API, optional batch-CLI wiring with synthetic regression coverage, a documented operator-owned real-source path, and `guid_mapping_export.py` as the deterministic operator-side exporter into mapping schema v1. The remaining `ASP-P1-2` evidence step is an operator-owned real-data export with the required provenance plus independent corroboration of representative mappings; no real Anno GUID/name claim is established by this repository yet.
+The repository now provides the deterministic mapping/validation/enrichment API, optional batch-CLI wiring with synthetic regression coverage, a documented operator-owned real-source path, and `guid_mapping_export.py` as the deterministic operator-side exporter into mapping schema v1. Schema v1 can now preserve machine-checkable extractor/converter identities and per-input SHA-256 identities, and those fields participate in `mapping_content_hash` instead of being silently discarded. The remaining `ASP-P1-2` evidence step is an operator-owned real-data export with the required provenance plus independent corroboration of representative mappings; no real Anno GUID/name claim is established by this repository yet.
