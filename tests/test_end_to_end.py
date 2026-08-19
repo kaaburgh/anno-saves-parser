@@ -99,13 +99,15 @@ def _session_blob(guid, x):
     return _filedb(records, tags, attrs)
 
 
-def _top_level_blob(session_blob):
+def _top_level_blob(session_blob, entry_tag_name=None):
     tags = {
         2: "MetaGameManager",
         3: "GameSessions",
         4: "SessionDesc",
         5: "SessionData",
     }
+    if entry_tag_name is not None:
+        tags[1] = entry_tag_name
     attrs = {
         32768: "SessionGUID",
         32769: "SessionID",
@@ -165,17 +167,17 @@ def _rda_archive(members):
     return header + bytes(payload) + directory + block
 
 
-def _write_save(path, timestamp, guid, x):
+def _write_save(path, timestamp, guid, x, entry_tag_name=None):
     meta = zlib.compress(_meta_blob(timestamp, path.stem))
-    data = zlib.compress(_top_level_blob(_session_blob(guid, x)))
+    data = zlib.compress(_top_level_blob(_session_blob(guid, x), entry_tag_name))
     path.write_bytes(_rda_archive([("meta.a7s", meta), ("data.a7s", data)]))
 
 
-def _run_cli(*args):
+def _run_cli(*args, check=True):
     return subprocess.run(
         [sys.executable, str(CLI), *map(str, args)],
         cwd=PROJECT_ROOT,
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
         timeout=60,
@@ -243,6 +245,29 @@ class SyntheticEndToEndTests(unittest.TestCase):
         diff = serial_summary["diffs"][0]
         self.assertEqual(diff["moved_count"], 1)
         self.assertEqual(diff["guid_changed_count"], 1)
+
+    def test_cli_rejects_save_with_no_recognized_sessions(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            save = root / "Unrecognized.a7s"
+            output = root / "out"
+            _write_save(
+                save,
+                1_700_000_000,
+                777001,
+                10.0,
+                entry_tag_name="Entry",
+            )
+
+            result = _run_cli(save, "-o", output, check=False)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "no GameSession descriptors recognized",
+                result.stdout + result.stderr,
+            )
+            self.assertFalse((output / "Unrecognized.canonical.json.gz").exists())
+            self.assertFalse((output / "summary.json").exists())
 
 
 if __name__ == "__main__":

@@ -1007,6 +1007,11 @@ def canonicalize_save(save: Path, work_dir: Path, progress: Optional[Progress] =
     if progress is not None:
         progress.say("  [sessions] locating embedded GameSessions")
     descriptors = extract_sessions(data_bin, None, progress)
+    if not descriptors:
+        raise ValueError(
+            f"{save}: no GameSession descriptors recognized; "
+            "refusing to publish an empty canonical state"
+        )
     if progress is not None:
         total_mb = sum(d.get("binary_size", 0) for d in descriptors) / 1048576
         progress.say(f"  [sessions] found {len(descriptors)} session blobs ({total_mb:.1f} MiB total)")
