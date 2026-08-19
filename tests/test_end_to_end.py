@@ -8,6 +8,8 @@ import unittest
 import zlib
 from pathlib import Path
 
+from anno_save_probe import extract_rda_member
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CLI = PROJECT_ROOT / "anno_save_probe.py"
@@ -268,6 +270,63 @@ class SyntheticEndToEndTests(unittest.TestCase):
             )
             self.assertFalse((output / "Unrecognized.canonical.json.gz").exists())
             self.assertFalse((output / "summary.json").exists())
+
+    def test_extract_rda_member_rejects_missing_or_duplicate_name(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            missing = root / "MissingMember.a7s"
+            missing.write_bytes(_rda_archive([("other.bin", b"x")]))
+            duplicate = root / "DuplicateMember.a7s"
+            duplicate.write_bytes(
+                _rda_archive([("meta.a7s", b"first"), ("meta.a7s", b"second")])
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "required RDA member 'meta.a7s' not found",
+            ):
+                extract_rda_member(missing, "meta.a7s")
+            with self.assertRaisesRegex(
+                ValueError,
+                "required RDA member 'meta.a7s' is ambiguous: found 2 entries",
+            ):
+                extract_rda_member(duplicate, "meta.a7s")
+
+    def test_cli_rejects_missing_or_duplicate_data_member(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            meta = zlib.compress(_meta_blob(1_700_000_000, "RequiredData"))
+            data = zlib.compress(_top_level_blob(_session_blob(777001, 10.0)))
+
+            missing = root / "MissingData.a7s"
+            missing.write_bytes(_rda_archive([("meta.a7s", meta)]))
+            missing_out = root / "missing-out"
+            missing_result = _run_cli(missing, "-o", missing_out, check=False)
+
+            self.assertNotEqual(missing_result.returncode, 0)
+            self.assertIn(
+                "required RDA member 'data.a7s' not found",
+                missing_result.stdout + missing_result.stderr,
+            )
+            self.assertFalse((missing_out / "MissingData.canonical.json.gz").exists())
+            self.assertFalse((missing_out / "summary.json").exists())
+
+            duplicate = root / "DuplicateData.a7s"
+            duplicate.write_bytes(
+                _rda_archive(
+                    [("meta.a7s", meta), ("data.a7s", data), ("data.a7s", data)]
+                )
+            )
+            duplicate_out = root / "duplicate-out"
+            duplicate_result = _run_cli(duplicate, "-o", duplicate_out, check=False)
+
+            self.assertNotEqual(duplicate_result.returncode, 0)
+            self.assertIn(
+                "required RDA member 'data.a7s' is ambiguous: found 2 entries",
+                duplicate_result.stdout + duplicate_result.stderr,
+            )
+            self.assertFalse((duplicate_out / "DuplicateData.canonical.json.gz").exists())
+            self.assertFalse((duplicate_out / "summary.json").exists())
 
 
 if __name__ == "__main__":
