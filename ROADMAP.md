@@ -15,7 +15,7 @@ reliable structural state
 → repeat evaluation
 ```
 
-The private v0.3.3 corpus summarized in issue #20 is evidence for prioritization, not a committed fixture. It contains 55 canonical states / 54 adjacent diffs, shows module-heavy construction bursts that require aggregation, frequent stable-ID GUID transitions that make provenance valuable, and two observed player-area additions that current raw structural diffs do not expose explicitly. Do not infer unsupported gameplay semantics from those aggregates.
+The private v0.3.3 corpus summarized in issue #20 is evidence for prioritization, not a committed fixture. It contains 55 canonical states / 54 adjacent diffs, shows module-heavy construction bursts that require aggregation, frequent stable-ID GUID transitions that make provenance valuable, and two observed player-area additions that are now exposed explicitly as raw `area_added` events by `ASP-P2-0`. Do not infer unsupported gameplay semantics from those aggregates.
 
 ## Foundation / observable state
 
