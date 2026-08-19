@@ -24,6 +24,7 @@ The private v0.3.3 corpus summarized in issue #20 is evidence for prioritization
 - **Status:** Implemented, validation incomplete
 - **Priority:** High
 - **Category:** Foundation
+- **Execution:** CLOUD
 - **Depends on:** none
 
 Parse current `.a7s` saves through RDA, zlib and FileDB v3; discover/sort autosaves by internal timestamp; support the public batch CLI; produce canonical snapshots and raw structural diffs; keep long stages observable.
@@ -35,6 +36,7 @@ Independent audit #40 found that the container/ingest path had no committed end-
 - **Status:** Completed and verified
 - **Priority:** High
 - **Category:** Foundation
+- **Execution:** CLOUD
 - **Depends on:** ASP-P0-1
 
 Maintain regression tests, agent guidance, architecture notes and cross-platform GitHub Actions around the parser baseline.
@@ -44,6 +46,7 @@ Maintain regression tests, agent guidance, architecture notes and cross-platform
 - **Status:** Completed and verified
 - **Priority:** High
 - **Category:** Observable state
+- **Execution:** CLOUD
 - **Depends on:** ASP-P0-2
 
 Keep canonical state explicit and versioned, preserving stable identity, session/area ownership and object/component data while excluding volatile parser-only representation.
@@ -53,6 +56,7 @@ Keep canonical state explicit and versioned, preserving stable identity, session
 - **Status:** Partially implemented
 - **Priority:** Critical
 - **Category:** Observable state / provenance
+- **Execution:** LOCAL ONLY
 - **Depends on:** ASP-P1-1
 
 Resolve relevant GUIDs to human-readable names through an explicit provenance-aware mapping without coupling core parsing to downloaded game assets or guesses. Initial scope should prioritize identities needed to interpret high-frequency stable-ID GUID transitions observed in the private evaluation corpus.
@@ -61,11 +65,14 @@ The repository defines a dependency-free versioned mapping contract with require
 
 Source selection is decided: use an operator-owned Anno 1800 installation as the primary evidence source and a pinned `anno-mods/asset-extractor` release or commit to extract/normalize the relevant asset and localization data. Preserve exact game/source hashes plus extractor/converter identity; keep proprietary extracted catalogs outside the repository. Public asset browsers and static community GUID lists remain secondary corroboration rather than primary provenance. An optional exporter now provides a deterministic seam from the extractor's resolved asset cache into mapping schema v1 without adding `assetextractor` to normal parser runtime dependencies; synthetic coverage exercises name selection, ordering, provenance validation and fail-closed duplicate/empty cases. A real operator-owned export plus independent corroboration remain open, so no real Anno GUID/name claim is established yet. See `docs/guid-source-selection.md`.
 
+**Operator handoff:** the blocked line is the real-data evidence step. It requires access to the operator's exact Anno 1800 installation plus the pinned extractor environment described in `docs/guid-source-selection.md`. Run the bounded exporter there, preserve the required build/input/tool provenance, and independently corroborate representative mappings; return only the small permitted mapping/evidence artifacts, not proprietary game data. No cloud cycle should substitute synthetic evidence for this target run.
+
 ### ASP-P2-0 — Player-area lifecycle raw events
 
 - **Status:** Completed and verified
 - **Priority:** Critical
 - **Category:** Structural diff
+- **Execution:** CLOUD
 - **Depends on:** ASP-P1-1
 
 Emit deterministic observed area-level structural events (for example player-area present→absent / absent→present) before assigning gameplay semantics. Cover synthetic area additions/removals and preserve session/area identity. This closes the observed gap where object additions can appear in a newly present player-owned area without an explicit higher-level raw event.
@@ -79,6 +86,7 @@ The implementation emits explicit `area_added` / `area_removed` raw events keyed
 - **Status:** Open
 - **Priority:** Critical
 - **Category:** Semantic reconstruction
+- **Execution:** CLOUD
 - **Depends on:** ASP-P1-2, ASP-P2-0
 
 Translate deterministic raw object additions/removals/moves/GUID/component changes into evidence-backed lifecycle events while suppressing representation noise. Keep unsupported upgrade/construction interpretations out until provenance establishes them.
@@ -88,6 +96,7 @@ Translate deterministic raw object additions/removals/moves/GUID/component chang
 - **Status:** Open
 - **Priority:** Critical
 - **Category:** Semantic reconstruction
+- **Execution:** CLOUD
 - **Depends on:** ASP-P2-1
 
 Collapse field/module bursts and related infrastructure into higher-level construction episodes so module-heavy transitions are not represented as hundreds of independent player decisions. Use reduced synthetic cases to establish deterministic clustering behavior. Before treating target-derived grouping boundaries as factual construction episodes, corroborate representative private transitions against independently observed or labeled real player actions; until such target-grounded evidence exists, describe target grouping only as a hypothesis or internal-consistency result rather than validated episode semantics.
@@ -97,6 +106,7 @@ Collapse field/module bursts and related infrastructure into higher-level constr
 - **Status:** Open
 - **Priority:** Critical
 - **Category:** Semantic timeline contract
+- **Execution:** CLOUD
 - **Depends on:** ASP-P2-2
 
 Define a compact deterministic timeline/episode JSON contract suitable for downstream evaluation. Preserve the boundary between factual reconstruction and later coaching judgement; the parser/timeline layer must not embed probabilistic coaching.
@@ -108,6 +118,7 @@ Define a compact deterministic timeline/episode JSON contract suitable for downs
 - **Status:** Open
 - **Priority:** Critical
 - **Category:** Evaluation
+- **Execution:** CLOUD
 - **Depends on:** ASP-P4-1
 
 Define a representative private evaluation slice policy, baseline inputs/outputs, and scoring language for useful, incorrect, unsupported/unverifiable, and missing-evidence coaching observations. Do not commit saves, player data, or generated private dumps.
@@ -117,6 +128,7 @@ Define a representative private evaluation slice policy, baseline inputs/outputs
 - **Status:** Open
 - **Priority:** Critical
 - **Category:** Coaching evaluation
+- **Execution:** LOCAL ONLY
 - **Depends on:** ASP-P5-1
 
 Generate and evaluate baseline coaching from deterministic semantic history before intent enrichment, full economic extraction, or live collection. Coaching must acknowledge absent evidence instead of inventing economy or intent. Preserve concrete failures and examples as sanitized aggregate findings or reduced cases.
@@ -126,6 +138,7 @@ Generate and evaluate baseline coaching from deterministic semantic history befo
 - **Status:** Open
 - **Priority:** Critical
 - **Category:** Evaluation / prioritization
+- **Execution:** CLOUD
 - **Depends on:** ASP-P5-2
 
 Classify failures into: missing observation/state extraction; missing semantic reconstruction; missing GUID/game knowledge/provenance; missing player intent/context; missing deterministic calculation; LLM reasoning/coaching failure despite sufficient evidence; and genuinely unknowable from save history. Convert only high-value, bounded evidence gaps into roadmap items and feed results back into subsequent evaluation.
@@ -137,6 +150,7 @@ Classify failures into: missing observation/state extraction; missing semantic r
 - **Status:** Open
 - **Priority:** High
 - **Category:** Coaching context
+- **Execution:** CLOUD
 - **Depends on:** ASP-P5-3
 
 Define a separate intent/context layer after baseline usefulness is measurable, then evaluate which previously classified failures it fixes. Intent/context may influence coaching judgement but must not mutate reconstructed factual episodes.
@@ -148,6 +162,7 @@ Define a separate intent/context layer after baseline usefulness is measurable, 
 - **Status:** Open
 - **Priority:** High
 - **Category:** Deterministic economy
+- **Execution:** CLOUD
 - **Depends on:** ASP-P1-1, ASP-P6-1
 
 Extract population/workforce, money/balance, stocks/inventory and production/demand state justified by coaching blind spots. Treat this as deterministic evidence supplied to coaching, not arithmetic delegated to an LLM.
@@ -157,15 +172,17 @@ Extract population/workforce, money/balance, stocks/inventory and production/dem
 - **Status:** Open
 - **Priority:** High
 - **Category:** Deterministic economy
+- **Execution:** CLOUD
 - **Depends on:** ASP-P1-3, ASP-P2-1
 
 Compute deterministic economic deltas/episodes over consecutive saves, including trends or bottleneck/depletion facts only where the extracted state supports them.
 
 ### ASP-P1-4 — Trade route extraction
 
-- **Status:** GATED
+- **Status:** Blocked on target evidence
 - **Priority:** Medium
 - **Category:** Deterministic economy / logistics
+- **Execution:** CLOUD
 - **Depends on:** ASP-P5-3
 
 Canonicalize routes, stations, assigned ships, configured goods and useful visit/history state only if a documented `ASP-P5-3` evaluation result identifies logistics visibility as a material coaching blind spot. Completion of `ASP-P5-3` satisfies the graph dependency but does not by itself open this item: the evaluation outcome must explicitly move this item to `Open`, or drop/supersede it if the expected coaching value is not established. This item is retained but is not assumed to be on the critical path before the first usefulness experiment.
@@ -177,6 +194,7 @@ Canonicalize routes, stations, assigned ships, configured goods and useful visit
 - **Status:** Open
 - **Priority:** High
 - **Category:** Evaluation loop
+- **Execution:** CLOUD
 - **Depends on:** ASP-P5-3
 
 For each accepted extraction/semantic/calculation improvement: classify the original failure, state why the added deterministic evidence should prevent it, repeat the relevant coaching evaluation, and record whether the failure moved, disappeared, or exposed another gap. Do not create parser breadth without expected coaching value.
@@ -188,6 +206,7 @@ For each accepted extraction/semantic/calculation improvement: classify the orig
 - **Status:** Open
 - **Priority:** Low
 - **Category:** Collection UX
+- **Execution:** CLOUD
 - **Depends on:** ASP-P5-2
 
 Watch a save directory, wait for a new `.a7s` write to stabilize, process it once, and append to an incremental timeline. This is deliberately sequenced after the first coaching-usefulness experiment: faster ingestion is not the highest product risk before useful advice is demonstrated.
@@ -197,6 +216,7 @@ Watch a save directory, wait for a new `.a7s` write to stabilize, process it onc
 - **Status:** Open
 - **Priority:** Low
 - **Category:** Collection UX
+- **Execution:** CLOUD
 - **Depends on:** ASP-P3-1
 
 Skip already processed saves safely using internal metadata/content identity and make interrupted sessions resumable.
