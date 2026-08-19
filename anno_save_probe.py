@@ -113,6 +113,7 @@ class Progress:
         self._parse_header = ""
         self._rendered_header = ""
         self._rendered_detail = ""
+        self._timestamp_fallbacks_reported: set[Path] = set()
 
     @staticmethod
     def _cell_width(char: str) -> int:
@@ -264,6 +265,17 @@ class Progress:
             else:
                 self._write_line(message)
             self.last_emit = now
+
+    def report_timestamp_fallback(self, save: Path, reason: str) -> None:
+        """Report filesystem-mtime fallback once per save for this CLI run."""
+        key = save.resolve()
+        if key in self._timestamp_fallbacks_reported:
+            return
+        self._timestamp_fallbacks_reported.add(key)
+        self.say(
+            f"[scan] warning: {save.name}: internal LastModTime unavailable "
+            f"({reason}); using filesystem mtime"
+        )
 
     def begin_parse(self, header: str) -> None:
         if self._parse_active:
@@ -1329,6 +1341,28 @@ def _natural_name_key(path: Path) -> tuple:
     return tuple(int(p) if p.isdigit() else p for p in parts)
 
 
+_EXPECTED_SAVE_META_ERRORS = (OSError, ValueError, KeyError, EOFError, struct.error, zlib.error)
+
+
+def _save_timestamp(
+    save: Path, progress: Optional[Progress] = None
+) -> tuple[float, str]:
+    """Return internal save time, or an explicit filesystem fallback for expected parse failures."""
+    try:
+        ts = cached_save_meta(save).get("last_mod_time")
+    except _EXPECTED_SAVE_META_ERRORS as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+    else:
+        if ts is not None:
+            return float(ts), "internal"
+        reason = "LastModTime missing"
+
+    fallback = save.stat().st_mtime
+    if progress is not None:
+        progress.report_timestamp_fallback(save, reason)
+    return fallback, "filesystem"
+
+
 def discover_saves(inputs: list[Path], progress: Optional[Progress] = None) -> list[Path]:
     """Resolve explicit .a7s files and folders containing .a7s saves."""
     saves: list[Path] = []
@@ -1351,12 +1385,7 @@ def discover_saves(inputs: list[Path], progress: Optional[Progress] = None) -> l
 
     chronology: dict[Path, float] = {}
     for i, p in enumerate(saves, 1):
-        try:
-            ts = cached_save_meta(p).get("last_mod_time")
-        except Exception:
-            ts = None
-        if ts is None:
-            ts = p.stat().st_mtime
+        ts, _ = _save_timestamp(p, progress)
         chronology[p] = ts
         if progress is not None:
             progress.maybe(
@@ -1370,7 +1399,9 @@ def discover_saves(inputs: list[Path], progress: Optional[Progress] = None) -> l
     return saves
 
 
-def select_from(saves: list[Path], start: Optional[str]) -> list[Path]:
+def select_from(
+    saves: list[Path], start: Optional[str], progress: Optional[Progress] = None
+) -> list[Path]:
     if not start:
         return saves
 
@@ -1383,22 +1414,12 @@ def select_from(saves: list[Path], start: Optional[str]) -> list[Path]:
             raise ValueError(f"Invalid date for --from: {start}; expected YYYY-MM-DD") from exc
         selected = []
         for p in saves:
-            try:
-                ts = cached_save_meta(p).get("last_mod_time")
-            except Exception:
-                ts = None
-            if ts is None:
-                ts = p.stat().st_mtime
+            ts, _ = _save_timestamp(p, progress)
             if datetime.fromtimestamp(ts).date() >= wanted:
                 selected.append(p)
         if not selected:
             if saves:
-                try:
-                    last_ts = cached_save_meta(saves[-1]).get("last_mod_time")
-                except Exception:
-                    last_ts = None
-                if last_ts is None:
-                    last_ts = saves[-1].stat().st_mtime
+                last_ts, _ = _save_timestamp(saves[-1], progress)
                 last = datetime.fromtimestamp(last_ts).date()
             else:
                 last = None
@@ -1429,14 +1450,7 @@ def print_save_list(saves: list[Path]) -> None:
         print("No .a7s saves found.")
         return
     for i, p in enumerate(saves, 1):
-        try:
-            ts = cached_save_meta(p).get("last_mod_time")
-        except Exception:
-            ts = None
-        source = "internal"
-        if ts is None:
-            ts = p.stat().st_mtime
-            source = "filesystem"
+        ts, source = _save_timestamp(p)
         modified = datetime.fromtimestamp(ts).astimezone()
         size_mb = p.stat().st_size / (1024 * 1024)
         print(
@@ -1851,7 +1865,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             raise ValueError(
                 "No .a7s files found. Point the command at the directory that directly contains the saves."
             )
-        saves = select_from(saves, args.start)
+        saves = select_from(saves, args.start, progress)
         if args.limit is not None:
             if args.limit <= 0:
                 raise ValueError("--limit must be greater than zero")
