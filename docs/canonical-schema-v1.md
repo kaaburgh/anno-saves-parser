@@ -81,20 +81,24 @@ Required array. Sessions are sorted deterministically by observed `session_guid`
 
 Each session contains:
 
-- `session_guid` — required integer or `null`; explicit `null` preserves observed absence rather than inventing a value;
-- `session_id` — required integer or `null`;
+- `session_guid` — required unsigned 32-bit integer or `null`; explicit `null` preserves observed absence rather than inventing a value;
+- `session_id` — required unsigned 32-bit integer or `null`;
 - `map` — optional string containing the raw observed session-map path; no region or gameplay semantics are assigned by this field;
 - `player_areas` — required array;
 - `buildings` — required array.
+
+The parser accepts these numeric descriptor fields only from their supported 4-byte little-endian representation. A zero-length or oversized representation is a parse error rather than a plausible integer.
 
 ## Player-area fields
 
 Each exported player area contains:
 
-- `area_id` — required integer;
-- `owner_id` — required integer. Current extraction exports areas selected as player-owned from the observed ownership structure; in tested saves that observed owner ID is `0`;
-- `city_name_guid` — optional integer when observed;
-- `city_name_iterator` — optional integer when observed.
+- `area_id` — required unsigned 32-bit integer;
+- `owner_id` — required unsigned 32-bit integer. Current extraction exports areas selected as player-owned from the observed ownership structure; in tested saves that observed owner ID is `0`;
+- `city_name_guid` — optional unsigned 32-bit integer when observed;
+- `city_name_iterator` — optional unsigned 32-bit integer when observed.
+
+The corresponding observed FileDB attributes are decoded only from their supported 4-byte little-endian representation; malformed widths fail closed before ownership or area identity is published.
 
 Areas are sorted by `area_id`.
 
@@ -104,9 +108,9 @@ The canonical state intentionally does not include parser-derived area summaries
 
 Each canonical building object contains:
 
-- `area_id` — required integer;
-- `id` — required integer stable object ID as observed in the save;
-- `guid` — required integer asset GUID; this is mutable object state, not part of stable identity;
+- `area_id` — required unsigned 32-bit integer;
+- `id` — required non-negative integer stable object ID as observed in the save. This field is intentionally not constrained to uint32; current synthetic coverage includes the supported 8-byte representation;
+- `guid` — required unsigned 32-bit integer asset GUID decoded from the supported 4-byte representation; this is mutable object state, not part of stable identity;
 - `components` — required array of unique component-tag strings sorted lexicographically;
 - `position` — optional three-element array containing the decoded observed finite float32 transform values;
 - `direction` — optional number containing the decoded observed finite float32 value;
