@@ -36,7 +36,13 @@ def _filedb(records, tags, attrs):
     return body + tag_dict + attr_dict + trailer
 
 
-def _session_blob(*, owner_raw=None, guid_raw=None):
+def _session_blob(
+    *,
+    owner_raw=None,
+    guid_raw=None,
+    area_manager_id=42,
+    area_id=42,
+):
     if owner_raw is None:
         owner_raw = (0).to_bytes(4, "little")
     if guid_raw is None:
@@ -46,7 +52,7 @@ def _session_blob(*, owner_raw=None, guid_raw=None):
         3: "AreaInfo",
         4: "Owner",
         5: "PassiveTrade",
-        6: "AreaManager_42",
+        6: f"AreaManager_{area_manager_id}",
         7: "AreaObjectManager",
         8: "GameObject",
         9: "objects",
@@ -66,7 +72,7 @@ def _session_blob(*, owner_raw=None, guid_raw=None):
         _record_attr(32768, owner_raw),
         _record_end(),
         _record_tag(5),
-        _record_attr(32769, (42).to_bytes(4, "little")),
+        _record_attr(32769, area_id.to_bytes(4, "little")),
         _record_end(),
         _record_end(),
         _record_end(),
@@ -157,6 +163,14 @@ class IntegerAttributeWidthTests(unittest.TestCase):
         self.assertEqual(parsed["player_area_ids"], [42])
         self.assertEqual(parsed["player_buildings"][0]["id"], 9001)
         self.assertEqual(parsed["player_buildings"][0]["guid"], 777001)
+
+    def test_disjoint_player_area_and_area_manager_namespaces_fail_closed(self):
+        path = self._write_blob(_session_blob(area_manager_id=42, area_id=99))
+        with self.assertRaisesRegex(
+            ValueError,
+            r"player AreaID and AreaManager identities are disjoint",
+        ):
+            probe.parse_session(path)
 
 
 if __name__ == "__main__":
