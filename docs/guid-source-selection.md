@@ -89,6 +89,44 @@ The manifest records independent corroboration as `required-not-recorded`. That 
 
 The preflight refuses to overwrite the mapping itself and publishes its manifest with an atomic same-directory replacement. A legacy schema-v1 mapping without structured producer/input fields remains valid for the ordinary mapping consumer but is ineligible for this real-evidence preflight.
 
+## Independent corroboration record
+
+After selecting representative GUID/name pairs from a reference that is independent of the exporter derivation, record those observations in a small local JSON document. Do not generate the expected names by reading them back from `guid-mapping.json`; that would only test internal consistency.
+
+Observation schema v1 is intentionally small and strict:
+
+```json
+{
+  "schema": "anno-saves-parser/guid-mapping-corroboration-observations",
+  "schema_version": 1,
+  "reference": {
+    "identity": "<independent reference identity>",
+    "version": "<reference snapshot/version>",
+    "artifact_hash": "sha256:<optional pinned reference artifact digest>"
+  },
+  "checks": [
+    {
+      "guid": 123456,
+      "name": "<independently observed exact name>",
+      "locator": "<optional reference locator>"
+    }
+  ]
+}
+```
+
+Then bind those observations to the exact exported mapping:
+
+```text
+python guid_mapping_corroboration.py \
+  --mapping C:/anno-evidence/guid-mapping.json \
+  --observations C:/anno-evidence/guid-mapping-observations.json \
+  --output C:/anno-evidence/guid-mapping-corroboration.json
+```
+
+The verifier uses exact GUID and exact name equality only. Missing GUIDs, mismatched names, duplicate GUID checks, malformed/unknown observation fields, or ambiguous input/output aliasing fail closed. The output binds the exact mapping-file SHA-256 and `mapping_content_hash` to the exact observations-file SHA-256, preserves reference provenance, and includes only the representative checked pairs rather than the full mapping. It is published through an atomic same-directory replacement.
+
+The tool cannot prove that the supplied reference is genuinely independent: the output therefore records `operator-asserted-independent-reference` rather than claiming independence as an automatically established fact. Reviewers must inspect the recorded reference provenance and decide whether it is actually independent of the primary exporter/source path. A source that reuses the same extracted catalog or transformation does not satisfy the evidence requirement merely because this command reports matching names.
+
 ## Follow-up boundary
 
-Source selection, a deterministic converter/export seam, machine-checkable producer/input provenance, and a safe provenance-preflight manifest are now prepared, but `ASP-P1-2` is not complete. The remaining bounded evidence step is an operator-owned real-data run with the required provenance plus independent corroboration of representative mappings. Until that run exists, the repository has no established real Anno GUID/name claim and downstream semantic work must preserve unresolved names rather than inventing them.
+Source selection, a deterministic converter/export seam, machine-checkable producer/input provenance, a safe provenance-preflight manifest, and a machine-readable representative-corroboration record are now prepared, but `ASP-P1-2` is not complete. The remaining bounded evidence step is the operator-owned real-data run itself: export against the exact installation, run the preflight, collect independently derived representative observations, and produce a corroboration record whose reference provenance is independently acceptable. Until that run exists, the repository has no established real Anno GUID/name claim and downstream semantic work must preserve unresolved names rather than inventing them.
