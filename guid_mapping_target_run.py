@@ -101,6 +101,10 @@ def _base_record(args):
         "result": {"status": "running"},
     }
 
+def _clear_stale_downstream_outputs(outputs) -> None:
+    for key in ("evidence", "corroboration", "run_record"):
+        outputs[key].unlink(missing_ok=True)
+
 def run_target_evidence(args, *, repo_root=None, run_command=subprocess.run):
     root = (repo_root or Path(__file__).resolve().parent).resolve()
     outputs = _output_paths(args.output_dir)
@@ -133,10 +137,18 @@ def run_target_evidence(args, *, repo_root=None, run_command=subprocess.run):
         except subprocess.TimeoutExpired:
             returncode = 124
             timed_out = True
+
+        artifact_key = artifact_keys[stage_name]
+        artifact = _artifact(outputs[artifact_key])
         if index == 0 and returncode == 0:
+            if artifact is None:
+                return 2, None
+            _clear_stale_downstream_outputs(outputs)
             record = _base_record(args)
+        elif record is not None and returncode == 0 and artifact is None:
+            returncode = 2
+
         if record is not None:
-            artifact = _artifact(outputs[artifact_keys[stage_name]])
             if artifact is not None:
                 record["artifacts"][stage_name] = artifact
             record["stages"].append({

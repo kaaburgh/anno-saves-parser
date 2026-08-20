@@ -129,6 +129,67 @@ class GuidMappingTargetRunTests(unittest.TestCase):
                 (args.output_dir / target_run.CORROBORATION_NAME).exists()
             )
 
+    def test_reused_output_dir_does_not_report_stale_downstream_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self._args(root)
+            repo = self._repo_root(root)
+            args.output_dir.mkdir(parents=True)
+            (args.output_dir / target_run.EVIDENCE_NAME).write_text(
+                "stale evidence\n", encoding="utf8"
+            )
+            (args.output_dir / target_run.CORROBORATION_NAME).write_text(
+                "stale corroboration\n", encoding="utf8"
+            )
+            (args.output_dir / target_run.RUN_RECORD_NAME).write_text(
+                '{"result": {"status": "stale"}}\n', encoding="utf8"
+            )
+
+            def fake_run(command, *, cwd, check, timeout):
+                name = Path(command[1]).name
+                if name == "guid_mapping_export.py":
+                    output = Path(command[command.index("--output") + 1])
+                    output.write_text("fresh mapping\n", encoding="utf8")
+                    return subprocess.CompletedProcess(command, 0)
+                return subprocess.CompletedProcess(command, 7)
+
+            code, record = target_run.run_target_evidence(
+                args, repo_root=repo, run_command=fake_run
+            )
+
+            self.assertEqual(code, 7)
+            self.assertEqual(set(record["artifacts"]), {"export"})
+            self.assertFalse((args.output_dir / target_run.EVIDENCE_NAME).exists())
+            self.assertFalse((args.output_dir / target_run.CORROBORATION_NAME).exists())
+            written = json.loads(
+                (args.output_dir / target_run.RUN_RECORD_NAME).read_text(encoding="utf8")
+            )
+            self.assertEqual(written["result"], {"status": "failed", "failed_stage": "preflight"})
+            self.assertEqual(set(written["artifacts"]), {"export"})
+
+    def test_successful_stage_must_publish_its_current_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self._args(root)
+            repo = self._repo_root(root)
+
+            def fake_run(command, *, cwd, check, timeout):
+                name = Path(command[1]).name
+                if name == "guid_mapping_export.py":
+                    output = Path(command[command.index("--output") + 1])
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    output.write_text("mapping\n", encoding="utf8")
+                return subprocess.CompletedProcess(command, 0)
+
+            code, record = target_run.run_target_evidence(
+                args, repo_root=repo, run_command=fake_run
+            )
+
+            self.assertEqual(code, 2)
+            self.assertEqual(record["result"], {"status": "failed", "failed_stage": "preflight"})
+            self.assertEqual(record["stages"][-1], {"name": "preflight", "returncode": 2, "status": "failed"})
+            self.assertEqual(set(record["artifacts"]), {"export"})
+
     def test_export_failure_does_not_write_before_output_safety_is_established(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
