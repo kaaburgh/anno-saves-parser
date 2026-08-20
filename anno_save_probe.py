@@ -708,7 +708,8 @@ def parse_session(
     guid_attrs = _ids_named(attrs, "guid")
     position_attrs = _ids_named(attrs, "Position")
     direction_attrs = _ids_named(attrs, "Direction")
-    rotation_attrs = _ids_named(attrs, "Rotation90") | _ids_named(attrs, "Rotation")
+    rotation_attrs = _ids_named(attrs, "Rotation")
+    rotation90_attrs = _ids_named(attrs, "Rotation90")
 
     stack: list[int] = []
     area_infos: list[dict] = []
@@ -861,12 +862,20 @@ def parse_session(
                         )
                         if decoded is not None:
                             current_object["direction"] = decoded
-                    elif ident in rotation_attrs and size <= 4:
+                    elif (ident in rotation_attrs or ident in rotation90_attrs) and size <= 4:
+                        source = "Rotation90" if ident in rotation90_attrs else "Rotation"
+                        previous_source = current_object.get("rotation_source")
+                        if previous_source is not None and previous_source != source:
+                            raise ValueError(
+                                "object has both Rotation and Rotation90 attributes; "
+                                "refusing ambiguous legacy rotation"
+                            )
                         current_object["rotation"] = int.from_bytes(
                             mapped[mapped_offset:mapped_offset + size],
                             "little",
                             signed=False,
                         )
+                        current_object["rotation_source"] = source
 
     owner_by_area = {
         area["area_id"]: area.get("owner_id")
@@ -952,6 +961,8 @@ def _canonical_building(obj: dict) -> dict:
         if field in obj and obj[field] is not None:
             value = obj[field]
             building[field] = list(value) if field == "position" else value
+    if obj.get("rotation_source") is not None:
+        building["rotation_source"] = obj["rotation_source"]
     return building
 
 
