@@ -73,6 +73,22 @@ The structured producer/input flags are optional at the schema/CLI compatibility
 
 The output is mapping schema v1 and can be passed to the batch parser with `--guid-mapping`. The export command itself does not establish a real target claim; that requires executing it on the operator-controlled installation, preserving the stated provenance, and independently checking representative GUID/name pairs or another relationship that does not reuse the same derivation.
 
+## Evidence preflight manifest
+
+After the real export, run the dependency-free preflight against the exact mapping file that may be returned for review:
+
+```text
+python guid_mapping_evidence.py \
+  --mapping C:/anno-evidence/guid-mapping.json \
+  --output C:/anno-evidence/guid-mapping-evidence.json
+```
+
+The preflight validates the exact bytes it hashes and fails closed unless the mapping contains structured `extractor`, `converter`, and non-empty `input_hashes` provenance. It emits a compact schema-versioned manifest containing the mapping file SHA-256, `mapping_content_hash`, entry count, source/build identity, producer identities, and material input hashes. It deliberately omits all GUID/name entries, so the manifest can be reviewed as provenance metadata without redistributing the extracted catalog.
+
+The manifest records independent corroboration as `required-not-recorded`. That is intentional: the preflight proves that the returned mapping is self-consistent with the repository's provenance contract, not that its names are independently correct. Representative GUID/name checks must still be performed against an independently derived reference or observation and reported separately before `ASP-P1-2` can be treated as target-validated.
+
+The preflight refuses to overwrite the mapping itself and publishes its manifest with an atomic same-directory replacement. A legacy schema-v1 mapping without structured producer/input fields remains valid for the ordinary mapping consumer but is ineligible for this real-evidence preflight.
+
 ## Follow-up boundary
 
-Source selection, a deterministic converter/export seam, and machine-checkable producer/input provenance are now prepared, but `ASP-P1-2` is not complete. The remaining bounded evidence step is an operator-owned real-data run with the required provenance plus independent corroboration of representative mappings. Until that run exists, the repository has no established real Anno GUID/name claim and downstream semantic work must preserve unresolved names rather than inventing them.
+Source selection, a deterministic converter/export seam, machine-checkable producer/input provenance, and a safe provenance-preflight manifest are now prepared, but `ASP-P1-2` is not complete. The remaining bounded evidence step is an operator-owned real-data run with the required provenance plus independent corroboration of representative mappings. Until that run exists, the repository has no established real Anno GUID/name claim and downstream semantic work must preserve unresolved names rather than inventing them.
