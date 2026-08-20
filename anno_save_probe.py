@@ -719,6 +719,7 @@ def parse_session(
     all_objects: list[dict] = []
     current_area_id: Optional[int] = None
     area_depth = -1
+    observed_area_manager_ids: set[int] = set()
     operations = 0
     next_progress = 10000
 
@@ -777,6 +778,7 @@ def parse_session(
                     depth = len(stack)
                     if ident in area_by_tag:
                         current_area_id = area_by_tag[ident]
+                        observed_area_manager_ids.add(current_area_id)
                         area_depth = depth
                     if (
                         ident in entry_ids
@@ -875,6 +877,15 @@ def parse_session(
         area_id for area_id, owner in owner_by_area.items() if owner == 0
     )
     player_set = set(player_area_ids)
+    if (
+        player_set
+        and observed_area_manager_ids
+        and player_set.isdisjoint(observed_area_manager_ids)
+    ):
+        raise ValueError(
+            "player AreaID and AreaManager identities are disjoint; "
+            "refusing to publish plausible partial state"
+        )
 
     player_buildings = []
     for obj in all_objects:
