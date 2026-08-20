@@ -1,6 +1,6 @@
 """Run the bounded operator-owned GUID mapping evidence workflow end to end."""
 from __future__ import annotations
-import argparse, hashlib, json, os, platform, subprocess, sys, tempfile
+import argparse, hashlib, json, os, platform, subprocess, sys, tempfile, uuid
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +57,12 @@ def _output_paths(output_dir: Path):
         "run_record": root / RUN_RECORD_NAME,
     }
 
+def _export_staging_path(mapping: Path) -> Path:
+    while True:
+        candidate = mapping.with_name(f".{mapping.name}.{uuid.uuid4().hex}.current")
+        if not candidate.exists():
+            return candidate
+
 def _export_command(args, repo_root: Path, mapping: Path):
     command = [
         sys.executable, _script(repo_root, "guid_mapping_export.py"),
@@ -78,9 +84,9 @@ def _export_command(args, repo_root: Path, mapping: Path):
         command += ["--input-hash", value]
     return command
 
-def _stage_commands(args, repo_root: Path, outputs):
+def _stage_commands(args, repo_root: Path, outputs, export_mapping: Path):
     return [
-        ("export", _export_command(args, repo_root, outputs["mapping"])),
+        ("export", _export_command(args, repo_root, export_mapping)),
         ("preflight", [sys.executable, _script(repo_root, "guid_mapping_evidence.py"), "--mapping", str(outputs["mapping"]), "--output", str(outputs["evidence"])]),
         ("corroboration", [sys.executable, _script(repo_root, "guid_mapping_corroboration.py"), "--mapping", str(outputs["mapping"]), "--observations", str(args.observations), "--output", str(outputs["corroboration"])]),
     ]
@@ -120,7 +126,8 @@ def run_target_evidence(args, *, repo_root=None, run_command=subprocess.run):
     if args.stage_timeout_seconds <= 0:
         raise GuidMappingTargetRunError("stage timeout must be greater than zero")
 
-    commands = _stage_commands(args, root, outputs)
+    export_mapping = _export_staging_path(outputs["mapping"])
+    commands = _stage_commands(args, root, outputs, export_mapping)
     record = None
     artifact_keys = {"export": "mapping", "preflight": "evidence", "corroboration": "corroboration"}
 
@@ -139,10 +146,13 @@ def run_target_evidence(args, *, repo_root=None, run_command=subprocess.run):
             timed_out = True
 
         artifact_key = artifact_keys[stage_name]
-        artifact = _artifact(outputs[artifact_key])
+        artifact_path = export_mapping if stage_name == "export" else outputs[artifact_key]
+        artifact = _artifact(artifact_path)
         if index == 0 and returncode == 0:
             if artifact is None:
                 return 2, None
+            os.replace(export_mapping, outputs["mapping"])
+            artifact = _artifact(outputs["mapping"])
             _clear_stale_downstream_outputs(outputs)
             record = _base_record(args)
         elif record is not None and returncode == 0 and artifact is None:
