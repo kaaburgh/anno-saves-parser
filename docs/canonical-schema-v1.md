@@ -114,7 +114,10 @@ Each canonical building object contains:
 - `components` — required array of unique component-tag strings sorted lexicographically;
 - `position` — optional three-element array containing the decoded observed finite float32 transform values;
 - `direction` — optional number containing the decoded observed finite float32 value;
-- `rotation` — optional integer retained only when the legacy root rotation attribute is observed.
+- `rotation` — optional integer retained only when one supported legacy root rotation attribute is observed;
+- `rotation_source` — optional string, exactly `Rotation` or `Rotation90`, identifying which observed legacy root attribute produced `rotation`.
+
+If both `Rotation` and `Rotation90` are observed for the same object, parsing fails closed rather than choosing one by FileDB record order. Repeated observations of the same source retain the existing last-observation behavior; this contract does not assign gameplay semantics to either source name.
 
 Buildings are sorted by `(area_id, id, guid)` within a session.
 
