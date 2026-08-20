@@ -323,7 +323,9 @@ class Progress:
 SAVE_META_CACHE: dict[Path, dict] = {}
 
 
-def _u32(b: bytes) -> int:
+def _u32(b: bytes, field: str = "uint32 attribute") -> int:
+    if len(b) != 4:
+        raise ValueError(f"{field} must be exactly 4 bytes; got {len(b)}")
     return int.from_bytes(b, "little", signed=False)
 
 
@@ -655,9 +657,9 @@ def extract_sessions(
             if descriptor_attr:
                 raw = _read_attr(f, size)
                 if ident in session_guid_ids:
-                    current["guid"] = _u32(raw)
+                    current["guid"] = _u32(raw, "SessionGUID")
                 elif ident in session_id_ids:
-                    current["id"] = _u32(raw)
+                    current["id"] = _u32(raw, "SessionID")
                 elif ident in session_map_ids:
                     current["map"] = _decode_utf16(raw)
             else:
@@ -817,21 +819,21 @@ def parse_session(
                     if relative_depth == 0:
                         if ident in city_name_guid_attrs:
                             current_area_info["CityNameGuid"] = _u32(
-                                mapped[mapped_offset:mapped_offset + size]
+                                mapped[mapped_offset:mapped_offset + size], "CityNameGuid"
                             )
                         elif ident in city_name_iterator_attrs:
                             current_area_info["CityNameIterator"] = _u32(
-                                mapped[mapped_offset:mapped_offset + size]
+                                mapped[mapped_offset:mapped_offset + size], "CityNameIterator"
                             )
                     elif relative_depth == 1:
                         parent = stack[-1]
                         if parent in owner_ids and ident in owner_id_attrs:
                             current_area_info["owner_id"] = _u32(
-                                mapped[mapped_offset:mapped_offset + size]
+                                mapped[mapped_offset:mapped_offset + size], "Owner/id"
                             )
                         elif parent in passive_trade_ids and ident in area_id_attrs:
                             current_area_info["area_id"] = _u32(
-                                mapped[mapped_offset:mapped_offset + size]
+                                mapped[mapped_offset:mapped_offset + size], "AreaID"
                             )
 
                 if current_object is not None and depth == object_depth:
@@ -843,7 +845,7 @@ def parse_session(
                         )
                     elif ident in guid_attrs:
                         current_object["guid"] = _u32(
-                            mapped[mapped_offset:mapped_offset + size]
+                            mapped[mapped_offset:mapped_offset + size], "guid"
                         )
                     elif ident in position_attrs:
                         decoded = _decode_position(
@@ -858,8 +860,10 @@ def parse_session(
                         if decoded is not None:
                             current_object["direction"] = decoded
                     elif ident in rotation_attrs and size <= 4:
-                        current_object["rotation"] = _u32(
-                            mapped[mapped_offset:mapped_offset + size]
+                        current_object["rotation"] = int.from_bytes(
+                            mapped[mapped_offset:mapped_offset + size],
+                            "little",
+                            signed=False,
                         )
 
     owner_by_area = {
