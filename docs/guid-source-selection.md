@@ -127,6 +127,36 @@ The verifier uses exact GUID and exact name equality only. Missing GUIDs, mismat
 
 The tool cannot prove that the supplied reference is genuinely independent: the output therefore records `operator-asserted-independent-reference` rather than claiming independence as an automatically established fact. Reviewers must inspect the recorded reference provenance and decide whether it is actually independent of the primary exporter/source path. A source that reuses the same extracted catalog or transformation does not satisfy the evidence requirement merely because this command reports matching names.
 
+## One-shot target-evidence runner
+
+`guid_mapping_target_run.py` is the preferred operator entry point once an independently prepared observations document already exists. It invokes the exporter, provenance preflight, and corroboration CLIs in order with the same Python interpreter and repository checkout, bounds every child stage with `--stage-timeout-seconds` (default 1800 seconds), and stops immediately on a non-zero exit or timeout.
+
+The output directory uses fixed names: `guid-mapping.json`, `guid-mapping-evidence.json`, `guid-mapping-corroboration.json`, and `guid-mapping-target-run.json`. The run record contains only schema/version, the explicit runner identity, safe Python/platform facts, SHA-256 identities for the config and observations inputs, per-stage termination status, and names/digests of produced artifacts. It does not embed the mapping payload, extracted assets, config paths, or observations paths.
+
+The exporter remains the authority for proving that the output directory is outside the immutable extractor/game/cache trees. Therefore the harness writes no run record if the export stage fails before output safety has been established. Once export succeeds, later failures produce a failure run record and no later stage is executed.
+
+Example:
+
+```text
+python guid_mapping_target_run.py \
+  --asset-extractor-root C:/tools/asset-extractor \
+  --config C:/tools/asset-extractor/config.json \
+  --observations C:/anno-evidence/guid-mapping-observations.json \
+  --output-dir C:/anno-evidence/run-001 \
+  --runner-identity anno-saves-parser/guid_mapping_target_run.py@<commit> \
+  --source-version <exact-game-build> \
+  --source-hash sha256:<manifest-digest> \
+  --mapping-version guid-map-<revision> \
+  --extractor-identity anno-mods/asset-extractor@<release-or-commit> \
+  --extractor-artifact-hash sha256:<optional-extractor-artifact-digest> \
+  --converter-identity anno-saves-parser/guid_mapping_export.py@<commit> \
+  --converter-artifact-hash sha256:<optional-converter-artifact-digest> \
+  --input-hash assets=sha256:<assets-input-digest> \
+  --input-hash localization-en=sha256:<localization-input-digest>
+```
+
+The observations document must still come from an independently acceptable reference. The one-shot runner automates sequencing and evidence packaging only; it does not acquire the independent observations, prove their independence, or turn synthetic/CI coverage into target evidence. The three individual CLIs remain supported for debugging and recovery.
+
 ## Follow-up boundary
 
-Source selection, a deterministic converter/export seam, machine-checkable producer/input provenance, a safe provenance-preflight manifest, and a machine-readable representative-corroboration record are now prepared, but `ASP-P1-2` is not complete. The remaining bounded evidence step is the operator-owned real-data run itself: export against the exact installation, run the preflight, collect independently derived representative observations, and produce a corroboration record whose reference provenance is independently acceptable. Until that run exists, the repository has no established real Anno GUID/name claim and downstream semantic work must preserve unresolved names rather than inventing them.
+Source selection, a deterministic converter/export seam, machine-checkable producer/input provenance, a safe provenance-preflight manifest, a machine-readable representative-corroboration record, and a bounded one-shot orchestration harness are now prepared, but `ASP-P1-2` is not complete. The remaining evidence step is the operator-owned real-data run itself: prepare independently derived representative observations, run the one-shot harness against the exact installation, and return a successful run record plus the permitted mapping/evidence artifacts whose reference provenance is independently acceptable. Until that run exists, the repository has no established real Anno GUID/name claim and downstream semantic work must preserve unresolved names rather than inventing them.
