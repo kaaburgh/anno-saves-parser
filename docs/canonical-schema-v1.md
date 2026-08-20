@@ -31,6 +31,16 @@ A canonical state document MUST contain:
       "session_guid": 123456,
       "session_id": 7,
       "map": "synthetic/session.a7t",
+      "observed_areas": [
+        {
+          "area_id": 42,
+          "owner_id": 0
+        },
+        {
+          "area_id": 99,
+          "owner_id": 3
+        }
+      ],
       "player_areas": [
         {
           "area_id": 42,
@@ -84,10 +94,22 @@ Each session contains:
 - `session_guid` — required unsigned 32-bit integer or `null`; explicit `null` preserves observed absence rather than inventing a value;
 - `session_id` — required unsigned 32-bit integer or `null`;
 - `map` — optional string containing the raw observed session-map path; no region or gameplay semantics are assigned by this field;
+- `observed_areas` — optional array containing structurally observed area identities and supported ownership values, when this projection is available from the parser;
 - `player_areas` — required array;
 - `buildings` — required array.
 
 The parser accepts these numeric descriptor fields only from their supported 4-byte little-endian representation. A zero-length or oversized representation is a parse error rather than a plausible integer.
+
+## Observed-area fields
+
+When `observed_areas` is present, each entry contains:
+
+- `area_id` — required unsigned 32-bit integer from an observed `AreaInfo` / `AreaID` value;
+- `owner_id` — optional unsigned 32-bit integer when a supported ownership value was observed for that same `AreaInfo` entry.
+
+Entries are sorted by `area_id`. Duplicate observed `area_id` values within one canonical session are rejected instead of being resolved by input order. Missing or unsupported ownership remains absent; it is not replaced with a guessed value.
+
+This projection is additive to canonical v1. It does not change the existing `player_areas` membership contract or player-building filtering. It preserves structural ownership evidence so a later raw diff can distinguish an observed owner-ID transition from an area merely entering the player-area projection. It does not assign gameplay meaning to owner IDs or to an ownership transition.
 
 ## Player-area fields
 
@@ -133,12 +155,15 @@ Optional fields are emitted only when the parser has decoded an observed support
 
 `session_guid` and `session_id` are exceptions: their keys are always present and use JSON `null` when the corresponding observed session descriptor value is absent. Keeping those identity slots explicit makes session comparison rules unambiguous, even though a state can remain canonical while lacking enough session identity for the separate raw-diff operation to compare it safely.
 
+`observed_areas` is an additive optional field for compatibility with earlier schema-v1 documents. Newly parsed states emit it when the parser has the corresponding structural observation. A diff against a v1 state that lacks the field cannot invent ownership history from absence; ownership-transition evidence is emitted only where both compared states provide supported owner IDs for the same observed area identity.
+
 ## Determinism
 
 For the same decoded game state and parser version, canonical semantic content and array ordering are deterministic:
 
 - sessions use identity/descriptor ordering plus normalized canonical content as a final tie-breaker;
-- areas are sorted by `area_id`;
+- observed areas use `area_id` ordering when present;
+- player areas are sorted by `area_id`;
 - buildings are sorted by `(area_id, id, guid)`;
 - component sets are deduplicated and sorted.
 
@@ -172,7 +197,7 @@ Additive optional fields that preserve all existing v1 meanings may remain schem
 
 ## Structural diffs
 
-The current raw structural diff consumes canonical v1 states and emits additions, removals, position changes, Direction changes, component changes, and GUID changes. Its session fallback/rejection rules are described above. That diff format is a separate pre-semantic interface; this document does not declare a semantic-diff schema.
+The current raw structural diff consumes canonical v1 states and emits object additions/removals, position changes, Direction changes, component changes, GUID changes, player-area projection additions/removals, and observed owner-ID transitions when both snapshots contain supported ownership for the same observed area. Its session fallback/rejection rules are described above. That diff format is a separate pre-semantic interface; this document does not declare a semantic-diff schema.
 
 ## `summary.json` is not a canonical state
 

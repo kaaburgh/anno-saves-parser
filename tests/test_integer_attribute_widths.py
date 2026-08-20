@@ -164,6 +164,14 @@ class IntegerAttributeWidthTests(unittest.TestCase):
         self.assertEqual(parsed["player_buildings"][0]["id"], 9001)
         self.assertEqual(parsed["player_buildings"][0]["guid"], 777001)
 
+    def test_non_player_owner_is_preserved_as_observed_area_state(self):
+        path = self._write_blob(
+            _session_blob(owner_raw=(3).to_bytes(4, "little"))
+        )
+        parsed = probe.parse_session(path)
+        self.assertEqual(parsed["player_area_ids"], [])
+        self.assertEqual(parsed["observed_areas"], [{"area_id": 42, "owner_id": 3}])
+
     def test_disjoint_player_area_and_area_manager_namespaces_fail_closed(self):
         path = self._write_blob(_session_blob(area_manager_id=42, area_id=99))
         with self.assertRaisesRegex(

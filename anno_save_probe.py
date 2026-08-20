@@ -877,11 +877,24 @@ def parse_session(
                         )
                         current_object["rotation_source"] = source
 
-    owner_by_area = {
-        area["area_id"]: area.get("owner_id")
-        for area in area_infos
-        if "area_id" in area
-    }
+    owner_by_area: dict[int, Optional[int]] = {}
+    observed_areas = []
+    for area in area_infos:
+        if "area_id" not in area:
+            continue
+        area_id = area["area_id"]
+        if area_id in owner_by_area:
+            raise ValueError(
+                f"duplicate observed AreaInfo identity {area_id}; refusing ambiguous ownership"
+            )
+        owner_id = area.get("owner_id")
+        owner_by_area[area_id] = owner_id
+        observed = {"area_id": area_id}
+        if owner_id is not None:
+            observed["owner_id"] = owner_id
+        observed_areas.append(observed)
+    observed_areas.sort(key=lambda area: area["area_id"])
+
     player_area_ids = sorted(
         area_id for area_id, owner in owner_by_area.items() if owner == 0
     )
@@ -945,6 +958,7 @@ def parse_session(
 
     return {
         "player_area_ids": player_area_ids,
+        "observed_areas": observed_areas,
         "areas": area_summaries,
         "player_buildings": player_buildings,
         "total_game_objects": len(all_objects),
@@ -999,6 +1013,24 @@ def build_canonical_state(source_name: str, parsed_sessions: list[dict]) -> dict
         }
         if raw.get("map") is not None:
             session["map"] = raw["map"]
+
+        if "observed_areas" in raw:
+            observed_areas = []
+            seen_observed_area_ids = set()
+            for observed in sorted(
+                raw.get("observed_areas", []), key=lambda area: area["area_id"]
+            ):
+                area_id = observed["area_id"]
+                if area_id in seen_observed_area_ids:
+                    raise ValueError(
+                        "canonical state found duplicate observed area identity within a session"
+                    )
+                seen_observed_area_ids.add(area_id)
+                area = {"area_id": area_id}
+                if observed.get("owner_id") is not None:
+                    area["owner_id"] = observed["owner_id"]
+                observed_areas.append(area)
+            session["observed_areas"] = observed_areas
 
         area_summaries = raw.get("areas", {})
         for area_id in sorted(raw.get("player_area_ids", [])):
@@ -1195,6 +1227,26 @@ def _index_state_player_areas(state: dict) -> dict:
     return indexed
 
 
+def _index_state_observed_areas(state: dict) -> dict:
+    indexed = {}
+    seen_sessions = set()
+    for session in state["sessions"]:
+        session_identity = session_diff_identity(session)
+        if session_identity in seen_sessions:
+            raise ValueError(
+                "structural diff cannot disambiguate duplicate canonical session identity"
+            )
+        seen_sessions.add(session_identity)
+        for area in session.get("observed_areas", []):
+            key = (session_identity, area["area_id"])
+            if key in indexed:
+                raise ValueError(
+                    "structural diff found duplicate observed-area identity within a session"
+                )
+            indexed[key] = (session, area)
+    return indexed
+
+
 def _compact_area_event(pair: tuple[dict, dict]) -> dict:
     session, area = pair
     return {
@@ -1210,9 +1262,12 @@ def diff_states(prev: dict, curr: dict) -> dict:
     b = _index_state_buildings(curr)
     prev_areas = _index_state_player_areas(prev)
     curr_areas = _index_state_player_areas(curr)
+    prev_observed_areas = _index_state_observed_areas(prev)
+    curr_observed_areas = _index_state_observed_areas(curr)
     added_keys = b.keys() - a.keys(); removed_keys = a.keys() - b.keys(); common = a.keys() & b.keys()
     area_added_keys = curr_areas.keys() - prev_areas.keys()
     area_removed_keys = prev_areas.keys() - curr_areas.keys()
+    observed_area_common = prev_observed_areas.keys() & curr_observed_areas.keys()
 
     def compact(pair):
         s, o = pair
@@ -1228,6 +1283,20 @@ def diff_states(prev: dict, curr: dict) -> dict:
     removed=[compact(a[k]) for k in sorted(removed_keys, key=building_key_sort)]
     area_added=[_compact_area_event(curr_areas[k]) for k in sorted(area_added_keys, key=area_key_sort)]
     area_removed=[_compact_area_event(prev_areas[k]) for k in sorted(area_removed_keys, key=area_key_sort)]
+    area_owner_changed=[]
+    for k in sorted(observed_area_common, key=area_key_sort):
+        _, prev_area = prev_observed_areas[k]
+        curr_session, curr_area = curr_observed_areas[k]
+        if "owner_id" not in prev_area or "owner_id" not in curr_area:
+            continue
+        if prev_area["owner_id"] == curr_area["owner_id"]:
+            continue
+        area_owner_changed.append({
+            **_session_identity_fields(curr_session),
+            "area_id": curr_area["area_id"],
+            "from_owner_id": prev_area["owner_id"],
+            "to_owner_id": curr_area["owner_id"],
+        })
     moved=[]; changed=[]; guid_changed=[]; direction_changed=[]
     for k in sorted(common, key=building_key_sort):
         sa, oa = a[k]; sb, ob = b[k]
@@ -1275,11 +1344,13 @@ def diff_states(prev: dict, curr: dict) -> dict:
         "added_count":len(added),"removed_count":len(removed),"moved_count":len(moved),"component_changed_count":len(changed),
         "guid_changed_count":len(guid_changed),"direction_changed_count":len(direction_changed),
         "area_added_count":len(area_added),"area_removed_count":len(area_removed),
+        "area_owner_changed_count":len(area_owner_changed),
         "added_by_guid":{str(k):v for k,v in sorted(by_guid_add.items())},
         "removed_by_guid":{str(k):v for k,v in sorted(by_guid_remove.items())},
         "added":added,"removed":removed,"moved":moved,"component_changed":changed,"guid_changed":guid_changed,
         "direction_changed":direction_changed,
         "area_added":area_added,"area_removed":area_removed,
+        "area_owner_changed":area_owner_changed,
     }
 
 
@@ -1320,6 +1391,8 @@ def strip_objects(state: dict) -> dict:
             "player_areas": [dict(area) for area in s.get("player_areas", [])],
             "building_count": len(s.get("buildings", [])),
         }
+        if "observed_areas" in s:
+            q["observed_areas"] = [dict(area) for area in s.get("observed_areas", [])]
         if "map" in s:
             q["map"] = s["map"]
         out["sessions"].append(q)
