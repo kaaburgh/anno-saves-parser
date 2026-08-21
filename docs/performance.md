@@ -85,3 +85,22 @@ On the same two-save pair, a separate check measured 16.59 s with one worker ver
 Peak RSS was sampled per worker with the platform `resource` API in this Linux runtime; the aggregate values above are conservative sums of the largest simultaneously active worker peaks, not a synchronized whole-process-tree measurement. Temp pressure is the sum of representative expanded `data.bin` sizes. Windows behavior can differ because process spawn, filesystem, antivirus and page-cache behavior differ; users should benchmark `1`, `2`, and `4` on their own machine before adopting a larger persistent setting.
 
 The CLI can query available physical memory through Win32 `GlobalMemoryStatusEx` or POSIX `sysconf` when available, plus free temporary-filesystem space through the standard library. These checks intentionally produce warnings rather than hard caps because the fixed per-worker values are measurements/estimates, not a proof that a particular save will or will not fit. Explicit `--workers N` remains user-controlled, except for the standard-library Windows `ProcessPoolExecutor` hard maximum of 61 active workers, which is validated before pool construction.
+
+## Decompression input chunk investigation (#34)
+
+Issue #34 records a bounded local experiment on two consecutive private saves using the parsing core at `main@b768091e928eda4924066bca609ff2bc926fdf77`. The experiment compared the current 1 MiB compressed-input step in `zlib_to_file()` with a 16 KiB candidate. The saves and derived state remain private; these measurements are local Linux x86-64 evidence, not a cross-machine or Windows performance contract.
+
+Representative measurements were:
+
+| Runtime / workload | 1 MiB input chunk | 16 KiB input chunk | Observed effect |
+| --- | ---: | ---: | ---: |
+| CPython 3.13.5, 1 save | ~5.84 s / ~219 MiB peak PSS | ~5.35 s / ~195 MiB | ~8% lower wall, ~11% lower PSS |
+| PyPy 7.3.19, 1 save | ~2.43 s / ~316 MiB | ~2.16 s / ~191 MiB | ~11% lower wall, ~39% lower PSS |
+| CPython, 2 workers | ~6.59 s / ~395 MiB | ~6.23 s / ~394 MiB | wall slightly lower, PSS roughly neutral |
+| PyPy, 2 workers | ~3.45 s / ~592 MiB | ~2.99 s / ~409 MiB | ~13% lower wall, ~31% lower PSS |
+| CPython, 4-worker stress | ~7.15 s / ~699 MiB | ~7.10 s / ~674 MiB | wall neutral, modest PSS reduction |
+| PyPy, 4-worker stress | ~3.96 s / ~1043 MiB | ~3.78 s / ~739 MiB | ~5% lower wall, ~29% lower PSS |
+
+The four-worker measurements reused the same two private saves under distinct local names to stress resource scaling; they are throughput/resource evidence only, not four independent semantic fixtures. A separate 1–64 KiB sweep found a broad fast plateau rather than a unique optimum. The existing evidence therefore supports 16 KiB as a conservative implementation candidate because it captures the observed memory reduction without demonstrating a throughput advantage for retaining 1 MiB.
+
+This section preserves the evidence; it does **not** mark #34 implemented. The repository still uses the 1 MiB input step. Before closing #34, the production change still needs a named internal chunk constant, differential deterministic-output regression coverage, representative private-save comparison against the 1 MiB baseline for CPython workers 1/2 (with PyPy informative where available), and conservative reporting of any Windows real-save measurements. No public chunk-size tuning flag is justified by the current evidence.
