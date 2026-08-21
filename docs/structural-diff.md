@@ -15,20 +15,37 @@ The diff emits two explicit player-area lifecycle sections:
 - `area_added` / `area_added_count` when a canonical player area is absent from the previous state and present in the current state;
 - `area_removed` / `area_removed_count` for the reverse transition.
 
-Here, "lifecycle" means lifecycle **inside the canonical player-area projection**. Canonical schema v1 keeps only areas observed as player-owned; it does not retain the full set of non-player areas or an ownership-history record. Therefore an absent→present `area_added` event establishes only that the area entered the player-area projection between the two snapshots. It does not by itself distinguish physical area creation from an already-existing area becoming player-owned, parser-recognition changes, or another target-side cause that yields the same canonical transition. `area_removed` has the symmetric limitation.
+Here, "lifecycle" means lifecycle **inside the canonical player-area projection**. Canonical schema v1 keeps `player_areas` as the compatibility projection of areas observed as player-owned. Therefore an absent→present `area_added` event establishes only that the area entered the player-area projection between the two snapshots. It does not by itself distinguish physical area creation from an already-existing area becoming player-owned, parser-recognition changes, or another target-side cause that yields the same canonical transition. `area_removed` has the symmetric limitation.
 
 Area identity is the canonical session diff identity plus `area_id`. A session with `session_guid` uses that GUID. When the GUID is absent, the existing `(session_id, map)` fallback is used; ambiguous or unidentifiable sessions are rejected by the same fail-closed rules used for object diffs.
 
-Each event contains only canonical identity/attribution fields: `session_guid`, `session_id`, optional `map` when present on the canonical session, and `area_id`. The event does not establish ownership-transition cause, physical island/area creation or destruction, settlement, conquest, discovery, or any other gameplay meaning. Consumers that need one of those claims require additional independently supported evidence rather than inferring it from projection membership alone.
+Each event contains only canonical identity/attribution fields: `session_guid`, `session_id`, optional `map` when present on the canonical session, and `area_id`. The event does not establish ownership-transition cause, physical island/area creation or destruction, settlement, conquest, discovery, or any other gameplay meaning.
 
 Area events are deterministic and sorted by session identity followed by `area_id`.
 
+## Observed ownership transitions
+
+When both canonical snapshots contain `observed_areas` for the same session/`area_id`, and both entries contain supported `owner_id` values that differ, the diff emits one `area_owner_changed` event and increments `area_owner_changed_count`.
+
+Each event contains:
+
+- the usual canonical session attribution fields (`session_guid`, `session_id`, optional `map`);
+- `area_id`;
+- `from_owner_id`;
+- `to_owner_id`.
+
+This is raw owner-ID transition evidence only. It does not classify the change as purchase, conquest, settlement, loss, diplomacy, physical area creation/destruction, or any other gameplay event. If either snapshot lacks the observed area, or either observed entry lacks a supported owner ID, no ownership-transition event is invented.
+
+This section is additive to the existing player-area lifecycle sections. For example, a structurally observed non-player→player owner-ID transition can produce both `area_owner_changed` and `area_added`: the former says the observed owner ID changed, while the latter says the area entered the player-area projection. A newly observed player area with no prior observation produces `area_added` without `area_owner_changed`.
+
+Ownership-transition events are deterministic and sorted by session identity followed by `area_id`.
+
 ## Orthogonality to object events
 
-Area lifecycle events do not replace or collapse nested object evidence. If a newly present player-area projection entry also contains new building objects, the diff emits both one `area_added` event and the ordinary per-object `added` events. Likewise, removing an area from the player-area projection does not suppress its object-level `removed` events.
+Area lifecycle and ownership-transition events do not replace or collapse nested object evidence. If a newly present player-area projection entry also contains new building objects, the diff emits both the area-level raw evidence and the ordinary per-object `added` events. Likewise, removing an area from the player-area projection does not suppress its object-level `removed` events.
 
 An empty canonical player area can therefore produce an area lifecycle event with zero corresponding object events. Conversely, object additions/removals within an already-present area do not produce an area lifecycle event.
 
 ## Evidence boundary
 
-These events are deterministic transformations of canonical state. Synthetic regression fixtures establish the contract and ordering behavior; they do not establish target-specific gameplay semantics or the underlying target-side cause of a player-area projection transition. Private real-save observations may motivate the feature, but proprietary `.a7s` saves and private derived dumps are not committed as fixtures.
+These events are deterministic transformations of canonical state. Synthetic regression fixtures establish the contract and ordering behavior; they do not establish target-specific gameplay semantics or the underlying target-side cause of a player-area projection or owner-ID transition. The parser's observed ownership projection preserves information already present in the structural `AreaInfo` model; it does not independently establish that every relevant non-player area is present in every real save. Private real-save observations may motivate the feature, but proprietary `.a7s` saves and private derived dumps are not committed as fixtures.
