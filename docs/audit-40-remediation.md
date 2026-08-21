@@ -15,7 +15,7 @@ The audit itself remains historical evidence and is not rewritten. `ROADMAP.md` 
 
 ### AUDIT-001 — unrecognised structure can become plausible absence
 
-**Partially remediated.** Issue #43 added a top-level fail-closed floor when zero `GameSession` descriptors are recognized. Issue #75 added a fail-closed guard when observed player `AreaID` values and observed `AreaManager_<N>` identities are both present but completely disjoint. The roadmap intentionally still records finer-grained session recognition as open: session-level entry vocabulary / `AreaInfo` recognition can still require another bounded recognition floor before `ASP-P0-1` can be treated as target-validated.
+**Partially remediated.** Issue #43 added a top-level fail-closed floor when zero `GameSession` descriptors are recognized. Issue #75 added a fail-closed guard when observed player `AreaID` values and observed `AreaManager_<N>` identities are both present but completely disjoint. The roadmap intentionally still records finer-grained session recognition as open. Issue #85 now carries the next bounded `AreaInfo` recognition floor: when a `GameSessionManager/AreaInfo` container is structurally observed with direct child tag records but none are recognized as entries, reject the session before canonical publication. This remains synthetic fail-closed parser work rather than proprietary-target validation.
 
 ### AUDIT-002 — inconsistent session identity on structural-diff events
 
@@ -77,7 +77,7 @@ The audit itself remains historical evidence and is not rewritten. `ROADMAP.md` 
 
 The frozen audit no longer represents fifteen simultaneously open repository defects. The material remainder is narrower:
 
-1. **Finer-grained session recognition** under `ASP-P0-1`: top-level zero-session and complete area-identity-disjointness failures are guarded, but session-level entry/`AreaInfo` recognition still warrants a bounded fail-closed slice where evidence supports a safe invariant.
+1. **Finer-grained session recognition** under `ASP-P0-1`: issue #85 carries the current bounded `AreaInfo` recognition floor. Top-level zero-session and complete area-identity-disjointness failures are already guarded; #85 still needs implementation and synthetic validation before this repository-side recognition remainder narrows further. It is not proprietary-target validation.
 2. **`ASP-P1-2` target evidence:** the exporter, provenance, preflight, corroboration, and one-shot harness are present, but the actual operator-owned target run and independently acceptable GUID/name observations are still outstanding.
 3. **Area-identity target corroboration:** the `AreaManager_<N>` ↔ `AreaID` relationship remains internal-consistency evidence until checked independently on the proprietary target.
 4. **Reviewer-independence observation:** audit AUDIT-015 remains historical/process evidence unless the external review topology itself supplies a durable, independently distinguishable verdict source.
@@ -86,4 +86,4 @@ Open performance issues #34–#37 were not audit-remediation dependencies and re
 
 ## Audit issue lifecycle
 
-Do not close #40 merely because this ledger exists on a branch. After this document is independently reviewed and merged, #40 may be closed as a completed historical audit **only if** its remaining items above are represented by the live roadmap/operator handoff or explicit follow-up issues/evidence records. Closing the audit issue must not imply that outstanding target evidence has been produced.
+Audit #40 is closed as a completed historical audit. That closure records that the frozen audit has been triaged and its remaining work is represented by the live roadmap, operator handoff, this ledger, and explicit follow-up issues such as #85. It does **not** mean the outstanding target evidence, remaining recognition work, or external reviewer-independence observation is complete.
