@@ -1469,6 +1469,8 @@ def read_save_meta(save: Path) -> dict:
                 value = _read_attr(f, size)
                 pos += _padded(size)
                 if name == "LastModTime" and len(value) <= 8:
+                    if not value:
+                        raise ValueError("LastModTime payload is empty")
                     result["last_mod_time"] = int.from_bytes(value, "little", signed=False)
                 elif name == "CorporationSaveGameName":
                     result["save_name"] = _decode_utf16(value)
