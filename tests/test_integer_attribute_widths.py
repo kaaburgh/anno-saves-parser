@@ -42,6 +42,7 @@ def _session_blob(
     guid_raw=None,
     area_manager_id=42,
     area_id=42,
+    entry_tag_name=None,
 ):
     if owner_raw is None:
         owner_raw = (0).to_bytes(4, "little")
@@ -58,6 +59,8 @@ def _session_blob(
         9: "objects",
         10: "Building",
     }
+    if entry_tag_name is not None:
+        tags[1] = entry_tag_name
     attrs = {
         32768: "id",
         32769: "AreaID",
@@ -179,6 +182,26 @@ class IntegerAttributeWidthTests(unittest.TestCase):
             r"player AreaID and AreaManager identities are disjoint",
         ):
             probe.parse_session(path)
+
+    def test_unrecognized_area_info_entry_vocabulary_fails_closed(self):
+        path = self._write_blob(_session_blob(entry_tag_name="Entry"))
+        with self.assertRaisesRegex(
+            ValueError,
+            r"AreaInfo container has direct child tag records but no recognized entries",
+        ):
+            probe.parse_session(path)
+
+    def test_session_without_area_info_container_remains_valid(self):
+        path = self._write_blob(
+            _filedb(
+                [_record_tag(2), _record_end()],
+                {2: "GameSessionManager"},
+                {},
+            )
+        )
+        parsed = probe.parse_session(path)
+        self.assertEqual(parsed["player_area_ids"], [])
+        self.assertEqual(parsed["observed_areas"], [])
 
 
 if __name__ == "__main__":
