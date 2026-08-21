@@ -15,7 +15,7 @@ The audit itself remains historical evidence and is not rewritten. `ROADMAP.md` 
 
 ### AUDIT-001 — unrecognised structure can become plausible absence
 
-**Partially remediated.** Issue #43 added a top-level fail-closed floor when zero `GameSession` descriptors are recognized. Issue #75 added a fail-closed guard when observed player `AreaID` values and observed `AreaManager_<N>` identities are both present but completely disjoint. The roadmap intentionally still records finer-grained session recognition as open. Issue #85 now carries the next bounded `AreaInfo` recognition floor: when a `GameSessionManager/AreaInfo` container is structurally observed with direct child tag records but none are recognized as entries, reject the session before canonical publication. This remains synthetic fail-closed parser work rather than proprietary-target validation.
+**Repository remediation landed; target vocabulary remains conservative.** Issue #43 added a top-level fail-closed floor when zero `GameSession` descriptors are recognized. Issue #75 added a fail-closed guard when observed player `AreaID` values and observed `AreaManager_<N>` identities are both present but completely disjoint. Issue #85 adds the remaining bounded `AreaInfo` recognition floor tracked by this ledger: when a `GameSessionManager/AreaInfo` container is structurally observed with direct child tag records but none are recognized as entries, reject the session before canonical publication. The regression deliberately renames the synthetic entry tag and establishes fail-closed parser behavior only; occurrence or alternative entry vocabulary on the proprietary target remains unvalidated.
 
 ### AUDIT-002 — inconsistent session identity on structural-diff events
 
@@ -75,15 +75,14 @@ The audit itself remains historical evidence and is not rewritten. `ROADMAP.md` 
 
 ## Remaining audit-derived work
 
-The frozen audit no longer represents fifteen simultaneously open repository defects. The material remainder is narrower:
+The frozen audit no longer represents fifteen simultaneously open repository defects. The material remainder is now evidence/process work rather than an untracked parser-recognition hole:
 
-1. **Finer-grained session recognition** under `ASP-P0-1`: issue #85 carries the current bounded `AreaInfo` recognition floor. Top-level zero-session and complete area-identity-disjointness failures are already guarded; #85 still needs implementation and synthetic validation before this repository-side recognition remainder narrows further. It is not proprietary-target validation.
-2. **`ASP-P1-2` target evidence:** the exporter, provenance, preflight, corroboration, and one-shot harness are present, but the actual operator-owned target run and independently acceptable GUID/name observations are still outstanding.
-3. **Area-identity target corroboration:** the `AreaManager_<N>` ↔ `AreaID` relationship remains internal-consistency evidence until checked independently on the proprietary target.
-4. **Reviewer-independence observation:** audit AUDIT-015 remains historical/process evidence unless the external review topology itself supplies a durable, independently distinguishable verdict source.
+1. **`ASP-P1-2` target evidence:** the exporter, provenance, preflight, corroboration, and one-shot harness are present, but the actual operator-owned target run and independently acceptable GUID/name observations are still outstanding.
+2. **Area-identity target corroboration:** the `AreaManager_<N>` ↔ `AreaID` relationship remains internal-consistency evidence until checked independently on the proprietary target.
+3. **Reviewer-independence observation:** audit AUDIT-015 remains historical/process evidence unless the external review topology itself supplies a durable, independently distinguishable verdict source.
 
 Open performance issues #34–#37 were not audit-remediation dependencies and remain governed by the roadmap's explicit deprioritization rather than this ledger.
 
 ## Audit issue lifecycle
 
-Audit #40 is closed as a completed historical audit. That closure records that the frozen audit has been triaged and its remaining work is represented by the live roadmap, operator handoff, this ledger, and explicit follow-up issues such as #85. It does **not** mean the outstanding target evidence, remaining recognition work, or external reviewer-independence observation is complete.
+Audit #40 is closed as a completed historical audit. That closure records that the frozen audit has been triaged and its remaining work is represented by the live roadmap, operator handoff, this ledger, and explicit target/process evidence boundaries. It does **not** mean the outstanding target evidence or external reviewer-independence observation is complete.

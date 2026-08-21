@@ -715,6 +715,9 @@ def parse_session(
     area_infos: list[dict] = []
     current_area_info: Optional[dict] = None
     area_info_depth = -1
+    area_info_container_active = False
+    area_info_container_has_direct_child = False
+    area_info_container_has_recognized_entry = False
     current_object: Optional[dict] = None
     object_depth = -1
     all_objects: list[dict] = []
@@ -769,6 +772,23 @@ def parse_session(
                             area_infos.append(current_area_info)
                             current_area_info = None
                             area_info_depth = -1
+                        if (
+                            area_info_container_active
+                            and popped in area_info_ids
+                            and stack
+                            and stack[-1] in game_session_manager_ids
+                        ):
+                            if (
+                                area_info_container_has_direct_child
+                                and not area_info_container_has_recognized_entry
+                            ):
+                                raise ValueError(
+                                    "AreaInfo container has direct child tag records "
+                                    "but no recognized entries; refusing plausible partial state"
+                                )
+                            area_info_container_active = False
+                            area_info_container_has_direct_child = False
+                            area_info_container_has_recognized_entry = False
                         if current_area_id is not None and depth < area_depth:
                             current_area_id = None
                             area_depth = -1
@@ -782,11 +802,22 @@ def parse_session(
                         observed_area_manager_ids.add(current_area_id)
                         area_depth = depth
                     if (
-                        ident in entry_ids
-                        and depth >= 3
+                        ident in area_info_ids
+                        and depth >= 2
+                        and stack[-2] in game_session_manager_ids
+                    ):
+                        area_info_container_active = True
+                        area_info_container_has_direct_child = False
+                        area_info_container_has_recognized_entry = False
+                    is_area_info_direct_child = (
+                        depth >= 3
                         and stack[-2] in area_info_ids
                         and stack[-3] in game_session_manager_ids
-                    ):
+                    )
+                    if area_info_container_active and is_area_info_direct_child:
+                        area_info_container_has_direct_child = True
+                    if ident in entry_ids and is_area_info_direct_child:
+                        area_info_container_has_recognized_entry = True
                         current_area_info = {}
                         area_info_depth = depth
                     if (
