@@ -6,11 +6,15 @@ import unittest
 import zlib
 from pathlib import Path
 
-from anno_save_probe import zlib_to_file
+from anno_save_probe import zlib_to_file as production_zlib_to_file
+from decompression import (
+    DEFAULT_DECOMPRESSION_CHUNK_BYTES,
+    zlib_to_file as candidate_zlib_to_file,
+)
 
 
 REFERENCE_CHUNK_BYTES = 1 << 20
-CANDIDATE_CHUNK_BYTES = 16 << 10
+CANDIDATE_CHUNK_BYTES = DEFAULT_DECOMPRESSION_CHUNK_BYTES
 
 
 def _decompress_with_chunk(compressed: bytes, chunk_size: int) -> bytes:
@@ -42,17 +46,36 @@ class DecompressionChunkOracleTests(unittest.TestCase):
         self.assertEqual(payload, reference)
         self.assertEqual(reference, candidate)
 
-    def test_production_decompressor_matches_candidate_oracle(self) -> None:
+    def test_candidate_helper_matches_reference_and_production(self) -> None:
         payload = self._payload()
         compressed = zlib.compress(payload, level=6)
-        candidate = _decompress_with_chunk(compressed, CANDIDATE_CHUNK_BYTES)
+        reference = _decompress_with_chunk(compressed, REFERENCE_CHUNK_BYTES)
 
         with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / "data.bin"
-            total = zlib_to_file(compressed, output)
+            tmp_path = Path(tmp)
+            production_output = tmp_path / "production.bin"
+            candidate_output = tmp_path / "candidate.bin"
 
-            self.assertEqual(len(payload), total)
-            self.assertEqual(candidate, output.read_bytes())
+            production_total = production_zlib_to_file(compressed, production_output)
+            candidate_total = candidate_zlib_to_file(compressed, candidate_output)
+
+            self.assertEqual(len(payload), production_total)
+            self.assertEqual(production_total, candidate_total)
+            self.assertEqual(reference, production_output.read_bytes())
+            self.assertEqual(reference, candidate_output.read_bytes())
+
+    def test_candidate_helper_rejects_non_positive_chunk_size(self) -> None:
+        compressed = zlib.compress(b"payload")
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "data.bin"
+            for chunk_size in (0, -1):
+                with self.subTest(chunk_size=chunk_size):
+                    with self.assertRaisesRegex(ValueError, "chunk size must be positive"):
+                        candidate_zlib_to_file(
+                            compressed,
+                            output,
+                            chunk_bytes=chunk_size,
+                        )
 
 
 if __name__ == "__main__":
