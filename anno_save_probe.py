@@ -29,6 +29,7 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import BinaryIO, Optional
 
+from canonical_sort import sort_canonical_sessions
 from guid_mapping import GuidMappingError, enrich_structural_diff, load_guid_mapping
 
 __version__ = "0.4.0"
@@ -1080,7 +1081,7 @@ def build_canonical_state(source_name: str, parsed_sessions: list[dict]) -> dict
         )
         sessions.append(session)
 
-    sessions.sort(key=_canonical_session_sort_key)
+    sessions = sort_canonical_sessions(sessions)
     return {
         "schema": CANONICAL_SCHEMA,
         "schema_version": CANONICAL_SCHEMA_VERSION,
