@@ -68,6 +68,22 @@ class DecompressionTargetCheckTests(unittest.TestCase):
         self.assertEqual([len(run["elapsed_seconds"]) for run in result["runs"]], [2, 2])
         self.assertNotIn("private-name-is-not-emitted", json.dumps(result))
 
+    def test_compare_save_requires_positive_even_repeats(self):
+        with tempfile.TemporaryDirectory() as td:
+            save = Path(td) / "source.a7s"
+            save.write_bytes(b"synthetic-source")
+            for repeats in (0, 1, 3, -2):
+                with self.subTest(repeats=repeats):
+                    with self.assertRaisesRegex(ValueError, "positive even integer"):
+                        target_check.compare_save(save, repeats=repeats)
+
+    def test_arg_parser_requires_positive_even_repeats(self):
+        parser = target_check.build_arg_parser()
+        args = parser.parse_args(["--repeats", "4", "source.a7s"])
+        self.assertEqual(args.repeats, 4)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--repeats", "3", "source.a7s"])
+
     def test_compare_save_fails_when_candidate_changes_canonical_state(self):
         payload = b"candidate-mismatch" * 1000
         compressed = zlib.compress(payload)
@@ -98,6 +114,7 @@ class DecompressionTargetCheckTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "canonical state differs"):
                 target_check.compare_save(
                     save,
+                    repeats=2,
                     canonicalize_fn=canonicalize_fn,
                     decompressor_fn=mismatching_decompressor,
                 )

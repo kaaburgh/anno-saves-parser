@@ -20,11 +20,16 @@ SCHEMA_VERSION = 1
 REFERENCE_CHUNK_BYTES = 1 << 20
 
 
-def _positive_int(value: str) -> int:
+def _positive_even_int(value: str) -> int:
     parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("value must be greater than zero")
+    if parsed <= 0 or parsed % 2 != 0:
+        raise argparse.ArgumentTypeError("value must be a positive even integer")
     return parsed
+
+
+def _validate_repeats(repeats: int) -> None:
+    if repeats <= 0 or repeats % 2 != 0:
+        raise ValueError("repeats must be a positive even integer")
 
 
 def _sha256_file(path: Path) -> str:
@@ -76,11 +81,12 @@ def _run_once(
 
 def compare_save(
     save: Path,
-    repeats: int = 1,
+    repeats: int = 2,
     *,
     canonicalize_fn: Callable = probe.canonicalize_save,
     decompressor_fn: Callable = stream_zlib_to_file,
 ) -> dict:
+    _validate_repeats(repeats)
     save = save.resolve()
     chunk_sizes = [REFERENCE_CHUNK_BYTES, DEFAULT_DECOMPRESSION_CHUNK_BYTES]
     results = {
@@ -123,6 +129,7 @@ def compare_save(
 
 
 def build_report(saves: list[Path], repeats: int) -> dict:
+    _validate_repeats(repeats)
     return {
         "schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,
@@ -173,7 +180,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument("saves", nargs="+", type=Path)
-    parser.add_argument("--repeats", type=_positive_int, default=1)
+    parser.add_argument("--repeats", type=_positive_even_int, default=2)
     parser.add_argument(
         "--output",
         type=Path,
