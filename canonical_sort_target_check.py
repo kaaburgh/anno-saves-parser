@@ -212,14 +212,18 @@ def compare_raw_sessions(
 
 
 def build_report(saves: list[Path], repeats: int = DEFAULT_REPEATS) -> dict:
-    """Run the bounded comparison on operator-owned saves without returning paths."""
+    """Run the bounded comparison on distinct operator-owned saves without returning paths."""
     _validate_repeats(repeats)
     if len(saves) < 2:
         raise ValueError("target validation requires at least two saves")
 
+    resolved_saves = [save.resolve() for save in saves]
+    if len(set(resolved_saves)) != len(resolved_saves):
+        raise ValueError("target validation requires distinct save paths")
+
     results = []
-    for save in saves:
-        resolved = save.resolve()
+    seen_source_hashes: set[str] = set()
+    for save, resolved in zip(saves, resolved_saves):
         if not resolved.is_file():
             raise FileNotFoundError(f"save does not exist: {save}")
         if resolved.suffix.lower() != ".a7s":
@@ -227,6 +231,9 @@ def build_report(saves: list[Path], repeats: int = DEFAULT_REPEATS) -> dict:
         with tempfile.TemporaryDirectory(prefix="anno-canonical-sort-target-check-") as temp:
             work_dir = Path(temp)
             snapshot, source_sha256, source_size = _copy_verified_snapshot(resolved, work_dir)
+            if source_sha256 in seen_source_hashes:
+                raise ValueError("target validation requires distinct save contents")
+            seen_source_hashes.add(source_sha256)
             raw_sessions = _prepare_raw_sessions(snapshot, work_dir)
             comparison = compare_raw_sessions(raw_sessions, repeats)
         results.append(
@@ -286,7 +293,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "on operator-owned Anno 1800 saves."
         )
     )
-    parser.add_argument("saves", nargs="+", type=Path, help="At least two private .a7s saves")
+    parser.add_argument("saves", nargs="+", type=Path, help="At least two distinct private .a7s saves")
     parser.add_argument(
         "--repeats",
         type=int,

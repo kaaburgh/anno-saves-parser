@@ -4,7 +4,7 @@ Issue #36 already has a committed synthetic differential oracle and an isolated 
 
 ## Run
 
-Use at least two consecutive operator-owned `.a7s` saves. The default repeat count is four; repeat counts must be positive and even so eager/lazy ordering timings receive the same number of first and second positions.
+Use at least two consecutive operator-owned `.a7s` saves with distinct source paths and distinct source contents. The default repeat count is four; repeat counts must be positive and even so eager/lazy ordering timings receive the same number of first and second positions.
 
 ```bash
 python canonical_sort_target_check.py \
@@ -14,7 +14,7 @@ python canonical_sort_target_check.py \
   --output "C:/AnnoEvidence/canonical-sort-target-check.json"
 ```
 
-The source saves are treated as read-only evidence. Each save is copied into a temporary verified snapshot before parsing; the source hash/size before the copy, snapshot identity and source identity after the copy must agree. The detached evidence output is rejected if it aliases a source save and is published with an atomic same-directory replacement.
+The source saves are treated as read-only evidence. Each save is copied into a temporary verified snapshot before parsing; the source hash/size before the copy, snapshot identity and source identity after the copy must agree. Duplicate resolved source paths and duplicate source SHA-256 identities fail closed so one save cannot satisfy the two-save validation boundary twice. The detached evidence output is rejected if it aliases a source save and is published with an atomic same-directory replacement.
 
 ## Oracle
 
@@ -39,7 +39,7 @@ The JSON report records:
 - session count and deterministic canonical-state SHA-256;
 - per-repeat eager-reference and lazy-candidate ordering times.
 
-A successful report establishes equality and ordering-stage timing only for the exact source hashes and environment recorded. It does not establish cross-machine or Windows performance portability, and it does not by itself make the lazy helper the production path.
+A successful report establishes equality and ordering-stage timing only for the exact distinct source hashes and environment recorded. It does not establish cross-machine or Windows performance portability, and it does not by itself make the lazy helper the production path.
 
 ## Remaining #36 boundary
 

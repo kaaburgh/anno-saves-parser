@@ -73,6 +73,32 @@ class CanonicalSortTargetCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least two saves"):
             target_check.build_report([], repeats=2)
 
+    def test_build_report_rejects_duplicate_resolved_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            save = Path(temp) / "same.a7s"
+            save.write_bytes(b"same-save")
+            with self.assertRaisesRegex(ValueError, "distinct save paths"):
+                target_check.build_report([save, save], repeats=2)
+
+    def test_build_report_rejects_duplicate_save_contents(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            saves = [root / "one.a7s", root / "two.a7s"]
+            for save in saves:
+                save.write_bytes(b"identical-save-bytes")
+
+            comparison = {
+                "session_count": 1,
+                "canonical_sha256": "a" * 64,
+                "reference_ordering_seconds": [0.1, 0.1],
+                "candidate_ordering_seconds": [0.1, 0.1],
+            }
+            with patch.object(
+                target_check, "_prepare_raw_sessions", return_value=[{"raw": True}]
+            ), patch.object(target_check, "compare_raw_sessions", return_value=comparison):
+                with self.assertRaisesRegex(ValueError, "distinct save contents"):
+                    target_check.build_report(saves, repeats=2)
+
     def test_report_projection_omits_source_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
