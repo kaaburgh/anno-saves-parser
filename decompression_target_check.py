@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import platform
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -141,6 +140,14 @@ def build_report(saves: list[Path], repeats: int) -> dict:
     }
 
 
+def validate_output_path(output: Path, saves: list[Path]) -> Path:
+    resolved_output = output.resolve()
+    source_paths = {save.resolve() for save in saves}
+    if resolved_output in source_paths:
+        raise ValueError("output path must not alias a source save")
+    return resolved_output
+
+
 def _write_json_atomic(path: Path, value: dict) -> None:
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,9 +186,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[list[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
-    report = build_report(args.saves, args.repeats)
-    _write_json_atomic(args.output, report)
-    print(args.output)
+    try:
+        output = validate_output_path(args.output, args.saves)
+        report = build_report(args.saves, args.repeats)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise SystemExit(str(exc)) from exc
+    _write_json_atomic(output, report)
+    print(output)
 
 
 if __name__ == "__main__":

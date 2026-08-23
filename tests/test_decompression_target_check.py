@@ -83,6 +83,13 @@ class DecompressionTargetCheckTests(unittest.TestCase):
                     decompressor_fn=mismatching_decompressor,
                 )
 
+    def test_output_path_must_not_alias_source_save(self):
+        with tempfile.TemporaryDirectory() as td:
+            save = Path(td) / "source.a7s"
+            save.write_bytes(b"synthetic-source")
+            with self.assertRaisesRegex(ValueError, "must not alias a source save"):
+                target_check.validate_output_path(save, [save])
+
     def test_atomic_report_contains_no_source_paths(self):
         report = {
             "schema": target_check.SCHEMA,
