@@ -78,12 +78,11 @@ class CanonicalSessionSortOracleTests(unittest.TestCase):
             self._raw_session(guid=200, session_id=2, map_name="Map B"),
         ]
         self._assert_matches_eager_reference(raw_sessions)
-        projected = [self._project_one(raw) for raw in raw_sessions]
         with patch(
             "canonical_sort._canonical_session_state_tiebreaker",
             wraps=canonical_sort._canonical_session_state_tiebreaker,
         ) as tiebreaker:
-            canonical_sort.sort_canonical_sessions(projected)
+            probe.build_canonical_state("fixture.a7s", raw_sessions)
         self.assertEqual(tiebreaker.call_count, 0)
 
     def test_actual_primary_ties_match_full_state_tiebreaker(self):
@@ -108,12 +107,11 @@ class CanonicalSessionSortOracleTests(unittest.TestCase):
             ),
         ]
         self._assert_matches_eager_reference(raw_sessions)
-        projected = [self._project_one(raw) for raw in raw_sessions]
         with patch(
             "canonical_sort._canonical_session_state_tiebreaker",
             wraps=canonical_sort._canonical_session_state_tiebreaker,
         ) as tiebreaker:
-            canonical_sort.sort_canonical_sessions(projected)
+            probe.build_canonical_state("fixture.a7s", raw_sessions)
         self.assertEqual(tiebreaker.call_count, 3)
 
     def test_null_identity_ties_match_full_state_tiebreaker(self):

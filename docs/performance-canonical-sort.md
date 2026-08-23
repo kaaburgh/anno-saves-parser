@@ -1,12 +1,12 @@
 # Canonical session sort performance evidence
 
-This note preserves the bounded local evidence behind issue #36, `Avoid unconditional full-session JSON serialization in canonical sort`. It is performance evidence only; production behavior remains defined by `anno_save_probe.py`, and issue #36 remains open until the lazy-tie implementation is integrated into production and its required validation lands.
+This note preserves the bounded local evidence behind issue #36, `Avoid unconditional full-session JSON serialization in canonical sort`. Production behavior is defined by `anno_save_probe.py`; the lazy-tie helper is now wired into production, while issue #36 remains open until the required operator-owned equality/timing validation is completed and accepted.
 
 ## Historical experiment
 
 The local prototype was measured against parser revision `b768091e928eda4924066bca609ff2bc926fdf77` on representative private `Autosave 686`. The save and derived state remain private.
 
-Current canonical session ordering uses the primary identity fields `(session_guid, session_id, map)` followed by deterministic full-session JSON as a final tie-breaker. The prototype preserved that ordering but deferred the expensive JSON serialization until two or more sessions actually shared the complete primary identity tuple.
+The historical eager ordering used the primary identity fields `(session_guid, session_id, map)` followed by deterministic full-session JSON as a final tie-breaker. The prototype preserved that ordering but deferred the expensive JSON serialization until two or more sessions actually shared the complete primary identity tuple.
 
 The prototype produced the same canonical-state SHA-256 as the eager implementation on the representative save.
 
@@ -21,7 +21,7 @@ The CPython measurements are noisy but directionally favorable. The PyPy result 
 
 These numbers are local evidence, not a cross-machine performance contract and not a Windows benchmark.
 
-## Differential oracle and helper now committed
+## Differential oracle, helper, and production integration
 
 PR #95 added `tests/test_canonical_session_sort_oracle.py`. The retained eager reference key covers:
 
@@ -29,19 +29,20 @@ PR #95 added `tests/test_canonical_session_sort_oracle.py`. The retained eager r
 - real `(session_guid, session_id, map)` collisions that still require the full-state deterministic JSON tie-breaker;
 - null-identity collisions.
 
-The current bounded implementation step adds `canonical_sort.py`, which contains the pure-stdlib lazy-tie ordering helper. The oracle now checks that this helper remains exactly equivalent to the retained eager ordering and verifies that the full-state tie-breaker is not called for unique primary identities while still being called for every member of a real identity collision group.
+PR #97 added `canonical_sort.py`, the pure-stdlib lazy-tie ordering helper. The oracle verifies exact equivalence to the retained eager ordering and verifies that the full-state tie-breaker is skipped for unique primary identities while still being applied to every member of a real identity-collision group.
 
-The helper is intentionally not yet wired into `build_canonical_state()`. Production behavior therefore remains unchanged until the final integration edit lands and crosses its own CI/review boundary.
+The current production-integration step routes `build_canonical_state()` through `sort_canonical_sessions()`. The oracle now instruments the production path itself: unique session identities must cause zero full-state tie-breaker calls, while genuine collisions must still invoke the deterministic tie-breaker for every tied session. Canonical schema, parser extraction, structural diff semantics, GUID mapping, decompression, worker policy, and public CLI behavior remain unchanged.
+
+PR #104 added `canonical_sort_target_check.py`, which packages the required operator-owned equality and ordering-stage timing check on at least two distinct private save identities without committing private state. That harness remains the target-validation boundary for this production change; its existence is not evidence that the operator run has occurred.
 
 ## Remaining acceptance boundary
 
 Before issue #36 is complete, the production implementation still needs to:
 
-- route canonical session ordering through the committed lazy-tie helper so `json.dumps(session, ...)` is avoided for sessions whose primary identity is unique;
-- preserve the exact existing full-state tie-breaker for genuine primary-key collisions;
-- keep canonical ordering byte/semantically equivalent to the eager reference across the committed oracle;
-- validate canonical-state equality on at least two consecutive private saves when available, without committing private state;
-- record representative post-integration before/after canonicalization timing, with CPython as the default-runtime measurement and PyPy as informative evidence;
+- pass the repository cross-platform CI with the production lazy-sort wiring;
+- validate canonical-state equality on at least two distinct consecutive private saves when available using the documented target harness, without committing private state;
+- record representative post-integration canonical-ordering timing, with CPython as the default-runtime measurement and PyPy as informative evidence;
+- keep the exact full-state deterministic JSON tie-breaker for genuine primary-key collisions;
 - remain pure Python/stdlib and leave parser extraction, canonical schema, structural diff semantics, GUID mapping, decompression, worker policy, and public CLI behavior unchanged.
 
-The current evidence supports integrating the committed lazy-tie helper, but it does not by itself establish portable performance gains or replace the required post-change target validation.
+The historical measurements and committed synthetic oracle support this integration, but they do not by themselves establish the post-integration private-save result or portable performance gains.
