@@ -13,6 +13,7 @@ class DecompressionTargetCheckTests(unittest.TestCase):
     def test_compare_save_binds_input_and_requires_equal_canonical_state(self):
         payload = (b"decompression-target-check-" * 10000) + bytes(range(256)) * 64
         compressed = zlib.compress(payload)
+        observed_chunks = []
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -30,17 +31,35 @@ class DecompressionTargetCheckTests(unittest.TestCase):
                     "payload_sha256": __import__("hashlib").sha256(decoded).hexdigest(),
                 }
 
+            def recording_decompressor(compressed_bytes, dest, progress=None, *, chunk_bytes):
+                observed_chunks.append(chunk_bytes)
+                return stream_zlib_to_file(
+                    compressed_bytes,
+                    dest,
+                    progress,
+                    chunk_bytes=chunk_bytes,
+                )
+
             result = target_check.compare_save(
                 save,
                 repeats=2,
                 canonicalize_fn=canonicalize_fn,
-                decompressor_fn=stream_zlib_to_file,
+                decompressor_fn=recording_decompressor,
             )
 
         self.assertEqual(len(result["runs"]), 2)
         self.assertEqual(
             [run["chunk_bytes"] for run in result["runs"]],
             [target_check.REFERENCE_CHUNK_BYTES, target_check.DEFAULT_DECOMPRESSION_CHUNK_BYTES],
+        )
+        self.assertEqual(
+            observed_chunks,
+            [
+                target_check.REFERENCE_CHUNK_BYTES,
+                target_check.DEFAULT_DECOMPRESSION_CHUNK_BYTES,
+                target_check.DEFAULT_DECOMPRESSION_CHUNK_BYTES,
+                target_check.REFERENCE_CHUNK_BYTES,
+            ],
         )
         self.assertEqual(
             result["runs"][0]["canonical_sha256"],

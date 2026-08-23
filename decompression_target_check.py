@@ -45,16 +45,13 @@ def _canonical_bytes(state: dict) -> bytes:
     ).encode("utf-8")
 
 
-def _run_chunk(
+def _run_once(
     save: Path,
     chunk_bytes: int,
-    repeats: int,
     *,
     canonicalize_fn: Callable = probe.canonicalize_save,
     decompressor_fn: Callable = stream_zlib_to_file,
-) -> dict:
-    canonical_sha256: Optional[str] = None
-    elapsed_seconds: list[float] = []
+) -> tuple[str, float]:
     original = probe.zlib_to_file
 
     def selected_decompressor(compressed, dest, progress=None):
@@ -67,26 +64,14 @@ def _run_chunk(
 
     try:
         probe.zlib_to_file = selected_decompressor
-        for _ in range(repeats):
-            with tempfile.TemporaryDirectory(prefix="anno-decompression-check-") as td:
-                started = time.perf_counter()
-                state = canonicalize_fn(save, Path(td), None)
-                elapsed_seconds.append(time.perf_counter() - started)
-            digest = hashlib.sha256(_canonical_bytes(state)).hexdigest()
-            if canonical_sha256 is None:
-                canonical_sha256 = digest
-            elif digest != canonical_sha256:
-                raise RuntimeError(
-                    "canonical state changed between repeated runs for one chunk size"
-                )
+        with tempfile.TemporaryDirectory(prefix="anno-decompression-check-") as td:
+            started = time.perf_counter()
+            state = canonicalize_fn(save, Path(td), None)
+            elapsed_seconds = time.perf_counter() - started
     finally:
         probe.zlib_to_file = original
 
-    return {
-        "chunk_bytes": chunk_bytes,
-        "canonical_sha256": canonical_sha256,
-        "elapsed_seconds": elapsed_seconds,
-    }
+    return hashlib.sha256(_canonical_bytes(state)).hexdigest(), elapsed_seconds
 
 
 def compare_save(
@@ -97,22 +82,35 @@ def compare_save(
     decompressor_fn: Callable = stream_zlib_to_file,
 ) -> dict:
     save = save.resolve()
-    runs = [
-        _run_chunk(
-            save,
-            REFERENCE_CHUNK_BYTES,
-            repeats,
-            canonicalize_fn=canonicalize_fn,
-            decompressor_fn=decompressor_fn,
-        ),
-        _run_chunk(
-            save,
-            DEFAULT_DECOMPRESSION_CHUNK_BYTES,
-            repeats,
-            canonicalize_fn=canonicalize_fn,
-            decompressor_fn=decompressor_fn,
-        ),
-    ]
+    chunk_sizes = [REFERENCE_CHUNK_BYTES, DEFAULT_DECOMPRESSION_CHUNK_BYTES]
+    results = {
+        chunk_bytes: {
+            "chunk_bytes": chunk_bytes,
+            "canonical_sha256": None,
+            "elapsed_seconds": [],
+        }
+        for chunk_bytes in chunk_sizes
+    }
+
+    for repeat_index in range(repeats):
+        ordered_chunks = chunk_sizes if repeat_index % 2 == 0 else list(reversed(chunk_sizes))
+        for chunk_bytes in ordered_chunks:
+            digest, elapsed_seconds = _run_once(
+                save,
+                chunk_bytes,
+                canonicalize_fn=canonicalize_fn,
+                decompressor_fn=decompressor_fn,
+            )
+            result = results[chunk_bytes]
+            result["elapsed_seconds"].append(elapsed_seconds)
+            if result["canonical_sha256"] is None:
+                result["canonical_sha256"] = digest
+            elif digest != result["canonical_sha256"]:
+                raise RuntimeError(
+                    "canonical state changed between repeated runs for one chunk size"
+                )
+
+    runs = [results[REFERENCE_CHUNK_BYTES], results[DEFAULT_DECOMPRESSION_CHUNK_BYTES]]
     if runs[0]["canonical_sha256"] != runs[1]["canonical_sha256"]:
         raise RuntimeError(
             "canonical state differs between reference and candidate decompression chunks"
