@@ -1,7 +1,9 @@
 import json
 import unittest
+from unittest.mock import patch
 
 import anno_save_probe as probe
+import canonical_sort
 
 
 class CanonicalSessionSortOracleTests(unittest.TestCase):
@@ -57,50 +59,62 @@ class CanonicalSessionSortOracleTests(unittest.TestCase):
         return probe.build_canonical_state("fixture.a7s", [raw])["sessions"][0]
 
     def _assert_matches_eager_reference(self, raw_sessions):
-        expected = sorted(
-            (self._project_one(raw) for raw in raw_sessions),
-            key=self._eager_reference_key,
-        )
+        projected = [self._project_one(raw) for raw in raw_sessions]
+        expected = sorted(projected, key=self._eager_reference_key)
+        candidate = canonical_sort.sort_canonical_sessions(projected)
         actual = probe.build_canonical_state("fixture.a7s", raw_sessions)["sessions"]
+        self.assertEqual(candidate, expected)
         self.assertEqual(actual, expected)
         self.assertEqual(
-            json.dumps(actual, sort_keys=True, separators=(",", ":")),
+            json.dumps(candidate, sort_keys=True, separators=(",", ":")),
             json.dumps(expected, sort_keys=True, separators=(",", ":")),
         )
 
     def test_unique_primary_identities_match_eager_reference(self):
-        self._assert_matches_eager_reference(
-            [
-                self._raw_session(guid=300, session_id=3, map_name="Map C"),
-                self._raw_session(guid=100, session_id=1, map_name="Map A"),
-                self._raw_session(guid=None, session_id=7, map_name="Map B"),
-                self._raw_session(guid=200, session_id=2, map_name="Map B"),
-            ]
-        )
+        raw_sessions = [
+            self._raw_session(guid=300, session_id=3, map_name="Map C"),
+            self._raw_session(guid=100, session_id=1, map_name="Map A"),
+            self._raw_session(guid=None, session_id=7, map_name="Map B"),
+            self._raw_session(guid=200, session_id=2, map_name="Map B"),
+        ]
+        self._assert_matches_eager_reference(raw_sessions)
+        projected = [self._project_one(raw) for raw in raw_sessions]
+        with patch(
+            "canonical_sort._canonical_session_state_tiebreaker",
+            wraps=canonical_sort._canonical_session_state_tiebreaker,
+        ) as tiebreaker:
+            canonical_sort.sort_canonical_sessions(projected)
+        self.assertEqual(tiebreaker.call_count, 0)
 
     def test_actual_primary_ties_match_full_state_tiebreaker(self):
-        self._assert_matches_eager_reference(
-            [
-                self._raw_session(
-                    guid=100,
-                    session_id=1,
-                    map_name="Map A",
-                    area_id=9,
-                ),
-                self._raw_session(
-                    guid=100,
-                    session_id=1,
-                    map_name="Map A",
-                    area_id=2,
-                ),
-                self._raw_session(
-                    guid=100,
-                    session_id=1,
-                    map_name="Map A",
-                    area_id=5,
-                ),
-            ]
-        )
+        raw_sessions = [
+            self._raw_session(
+                guid=100,
+                session_id=1,
+                map_name="Map A",
+                area_id=9,
+            ),
+            self._raw_session(
+                guid=100,
+                session_id=1,
+                map_name="Map A",
+                area_id=2,
+            ),
+            self._raw_session(
+                guid=100,
+                session_id=1,
+                map_name="Map A",
+                area_id=5,
+            ),
+        ]
+        self._assert_matches_eager_reference(raw_sessions)
+        projected = [self._project_one(raw) for raw in raw_sessions]
+        with patch(
+            "canonical_sort._canonical_session_state_tiebreaker",
+            wraps=canonical_sort._canonical_session_state_tiebreaker,
+        ) as tiebreaker:
+            canonical_sort.sort_canonical_sessions(projected)
+        self.assertEqual(tiebreaker.call_count, 3)
 
     def test_null_identity_ties_match_full_state_tiebreaker(self):
         self._assert_matches_eager_reference(
