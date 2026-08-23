@@ -131,7 +131,7 @@ When stdout is attached to an interactive terminal with usable cursor-control su
 Run the same checks as CI:
 
 ```bash
-python -m compileall -q anno_save_probe.py guid_mapping.py tests
+python -m compileall -q anno_save_probe.py canonical_sort.py guid_mapping.py tests
 python -m unittest discover -s tests -v
 ```
 
