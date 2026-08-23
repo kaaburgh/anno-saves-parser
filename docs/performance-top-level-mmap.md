@@ -1,6 +1,6 @@
 # Top-level FileDB mmap investigation (#35)
 
-This note preserves the already-observed benchmark evidence behind issue #35. It does not mark the optimization implemented and does not change parser behavior.
+This note preserves the already-observed benchmark evidence behind issue #35 and the bounded implementation scaffolding now committed for it. The production `extract_sessions()` path is still unchanged.
 
 ## Scope
 
@@ -19,15 +19,26 @@ The prototype returned an exactly equal ordered list of session descriptors, inc
 
 The evidence supports a bounded pure-Python implementation candidate: move top-level session discovery to the same read-only mmap/offset traversal style already used for bounded GameSession blobs. It does not justify native code, canonical-schema changes, decompression changes, worker-policy changes, or public CLI changes.
 
+## Committed candidate seam
+
+`top_level_session_scan.py` now contains the read-only mmap/offset traversal as an internal candidate helper. It intentionally receives the already-decoded FileDB metadata (`tags_off`, tag dictionary, and attribute dictionary) rather than implementing a second metadata parser.
+
+The synthetic differential oracle compares three paths on the same reduced FileDB inputs:
+
+- the retained buffered reference scanner;
+- current production `extract_sessions()`;
+- the mmap candidate helper.
+
+The oracle requires exact descriptor equality on the two-session fixture and matching fail-closed errors for negative attribute sizes and truncated payloads. This establishes the candidate traversal contract in CI without yet changing the production call path.
+
 ## Remaining acceptance boundary
 
 Issue #35 remains open. Before it can be considered complete, the production scanner still needs:
 
-- the actual read-only mmap/offset implementation with Windows allocation/portability preserved;
+- wiring `extract_sessions()` to the committed read-only mmap/offset helper while preserving Windows portability and progress behavior;
 - all existing bounds, negative-size, malformed, and truncated-input rejection behavior preserved;
-- a committed differential oracle comparing the optimized scanner with the current buffered reference on synthetic/reduced fixtures;
 - exact deterministic session-descriptor equivalence;
 - validation on at least two consecutive private saves when available;
 - representative before/after timing recorded after the production change.
 
-PyPy remains informative benchmark evidence only; it is not promoted to a required CI runtime by this investigation.
+The committed differential oracle and mmap helper are preparatory repository evidence, not proof that the production scanner has changed. PyPy remains informative benchmark evidence only; it is not promoted to a required CI runtime by this investigation.

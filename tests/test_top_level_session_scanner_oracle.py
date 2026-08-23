@@ -14,6 +14,7 @@ from anno_save_probe import (
     bb_meta,
     extract_sessions,
 )
+from top_level_session_scan import scan_top_level_sessions_mmap
 
 
 PAD_BLOCK = 8
@@ -206,6 +207,11 @@ def _reference_extract_sessions(path):
     return sessions
 
 
+def _mmap_candidate(path):
+    tags_off, _, tags, attrs = bb_meta(path)
+    return scan_top_level_sessions_mmap(path, tags_off, tags, attrs)
+
+
 class TopLevelSessionScannerOracleTests(unittest.TestCase):
     def _write_fixture(self, root, data):
         path = root / "data.bin"
@@ -217,26 +223,31 @@ class TopLevelSessionScannerOracleTests(unittest.TestCase):
             _reference_extract_sessions(path)
         with self.assertRaises(expected_type) as production:
             extract_sessions(path)
+        with self.assertRaises(expected_type) as candidate:
+            _mmap_candidate(path)
         self.assertEqual(str(production.exception), str(reference.exception))
+        self.assertEqual(str(candidate.exception), str(reference.exception))
 
-    def test_reference_and_production_descriptors_match_exactly(self):
+    def test_reference_production_and_mmap_descriptors_match_exactly(self):
         with tempfile.TemporaryDirectory() as td:
             path = self._write_fixture(Path(td), _fixture_two_sessions())
             reference = _reference_extract_sessions(path)
             production = extract_sessions(path)
+            candidate = _mmap_candidate(path)
 
         self.assertEqual(production, reference)
+        self.assertEqual(candidate, reference)
         self.assertEqual(
             [
                 (item["guid"], item["id"], item["map"], item["binary_size"])
-                for item in production
+                for item in candidate
             ],
             [
                 (123456, 7, "synthetic/a.a7t", 17),
                 (654321, 9, "synthetic/b.a7t", 9),
             ],
         )
-        self.assertLess(production[0]["binary_offset"], production[1]["binary_offset"])
+        self.assertLess(candidate[0]["binary_offset"], candidate[1]["binary_offset"])
 
     def test_negative_attribute_size_matches_reference_failure(self):
         with tempfile.TemporaryDirectory() as td:
