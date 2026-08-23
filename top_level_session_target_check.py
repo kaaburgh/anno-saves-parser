@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import platform
+import shutil
 import sys
 import tempfile
 import time
@@ -34,6 +35,22 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _file_identity(path: Path) -> tuple[str, int]:
+    return _sha256_file(path), path.stat().st_size
+
+
+def _copy_verified_snapshot(source: Path, work_dir: Path) -> tuple[Path, str, int]:
+    """Copy one source save and prove the bytes stayed stable across the snapshot."""
+    before = _file_identity(source)
+    snapshot = work_dir / "source.a7s"
+    shutil.copyfile(source, snapshot)
+    snapshot_identity = _file_identity(snapshot)
+    after = _file_identity(source)
+    if before != snapshot_identity or after != snapshot_identity:
+        raise ValueError("source save changed while creating verified snapshot")
+    return snapshot, snapshot_identity[0], snapshot_identity[1]
 
 
 def _descriptor_digest(descriptors: list[dict]) -> str:
@@ -135,12 +152,14 @@ def build_report(saves: list[Path], repeats: int = DEFAULT_REPEATS) -> dict:
         if resolved.suffix.lower() != ".a7s":
             raise ValueError(f"not an .a7s save: {save}")
         with tempfile.TemporaryDirectory(prefix="anno-session-target-check-") as temp:
-            data_bin = _prepare_data_bin(resolved, Path(temp))
+            work_dir = Path(temp)
+            snapshot, source_sha256, source_size = _copy_verified_snapshot(resolved, work_dir)
+            data_bin = _prepare_data_bin(snapshot, work_dir)
             comparison = compare_data_bin(data_bin, repeats)
         results.append(
             {
-                "source_sha256": _sha256_file(resolved),
-                "source_size": resolved.stat().st_size,
+                "source_sha256": source_sha256,
+                "source_size": source_size,
                 **comparison,
             }
         )

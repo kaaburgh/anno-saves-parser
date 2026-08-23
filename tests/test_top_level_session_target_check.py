@@ -88,7 +88,10 @@ class TopLevelSessionTargetCheckTests(unittest.TestCase):
             self.assertNotIn("Private Autosave", encoded)
             self.assertEqual(2, len(report["saves"]))
             self.assertEqual(2, report["repeats"])
-            for item in report["saves"]:
+            for index, item in enumerate(report["saves"], 1):
+                expected_bytes = f"private-{index}".encode()
+                self.assertEqual(target_check.hashlib.sha256(expected_bytes).hexdigest(), item["source_sha256"])
+                self.assertEqual(len(expected_bytes), item["source_size"])
                 self.assertEqual({
                     "source_sha256",
                     "source_size",
@@ -97,6 +100,50 @@ class TopLevelSessionTargetCheckTests(unittest.TestCase):
                     "reference_seconds",
                     "candidate_seconds",
                 }, set(item))
+
+    def test_build_report_processes_verified_snapshot_not_live_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            saves = [root / "one.a7s", root / "two.a7s"]
+            for index, save in enumerate(saves, 1):
+                save.write_bytes(f"source-{index}".encode())
+
+            seen: list[tuple[Path, bytes]] = []
+
+            def prepare(snapshot: Path, work_dir: Path) -> Path:
+                seen.append((snapshot, snapshot.read_bytes()))
+                self.assertNotIn(snapshot.resolve(), {save.resolve() for save in saves})
+                return work_dir / "data.bin"
+
+            comparison = {
+                "descriptor_count": 0,
+                "descriptor_sha256": "b" * 64,
+                "reference_seconds": [0.1, 0.2],
+                "candidate_seconds": [0.05, 0.06],
+            }
+            with mock.patch.object(target_check, "_prepare_data_bin", side_effect=prepare), mock.patch.object(
+                target_check, "compare_data_bin", return_value=comparison
+            ):
+                target_check.build_report(saves, repeats=2)
+
+            self.assertEqual([b"source-1", b"source-2"], [payload for _, payload in seen])
+
+    def test_verified_snapshot_fails_if_source_changes_during_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.a7s"
+            source.write_bytes(b"before")
+            work_dir = root / "work"
+            work_dir.mkdir()
+            original_copyfile = target_check.shutil.copyfile
+
+            def mutate_then_copy(src, dst):
+                source.write_bytes(b"after")
+                return original_copyfile(src, dst)
+
+            with mock.patch.object(target_check.shutil, "copyfile", side_effect=mutate_then_copy):
+                with self.assertRaisesRegex(ValueError, "changed while creating verified snapshot"):
+                    target_check._copy_verified_snapshot(source, work_dir)
 
     def test_build_report_requires_two_saves(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
