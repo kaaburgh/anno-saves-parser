@@ -4,7 +4,7 @@ Issue #35 replaces the hot buffered top-level FileDB traversal with a read-only 
 
 ## Run
 
-Use at least two consecutive operator-owned `.a7s` saves:
+Use at least two **distinct** consecutive operator-owned `.a7s` saves. The harness rejects duplicate resolved paths and also rejects different paths whose verified snapshots have identical SHA-256 content, so one save identity cannot satisfy the two-save evidence boundary twice.
 
 ```powershell
 python .\top_level_session_target_check.py `
@@ -36,6 +36,6 @@ The output path may not alias a source save and publication uses an atomic same-
 
 ## Evidence boundary
 
-A successful report establishes descriptor equivalence and representative scanner timing on the exact verified source bytes named by their hashes. It does not establish broader canonical-state semantics, decompression behavior, GUID interpretation, or cross-machine performance.
+A successful report establishes descriptor equivalence and representative scanner timing on the exact **distinct** verified source bytes named by their hashes. Supplying the same path twice or supplying byte-identical saves through different paths fails closed rather than manufacturing two-save evidence. The report does not establish broader canonical-state semantics, decompression behavior, GUID interpretation, or cross-machine performance.
 
 Issue #35 still requires the production `extract_sessions()` wiring to the mmap helper. The historical Linux measurements remain local evidence, and Windows portability/resource behavior must still be checked conservatively before treating exact performance numbers as portable.
