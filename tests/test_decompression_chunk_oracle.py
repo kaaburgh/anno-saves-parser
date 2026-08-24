@@ -5,8 +5,9 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
-from anno_save_probe import zlib_to_file as production_zlib_to_file
+import anno_save_probe as probe
 from decompression import (
     DEFAULT_DECOMPRESSION_CHUNK_BYTES,
     zlib_to_file as candidate_zlib_to_file,
@@ -31,8 +32,8 @@ class DecompressionChunkOracleTests(unittest.TestCase):
     @staticmethod
     def _payload() -> bytes:
         # Deterministic, poorly-compressible data keeps the compressed stream above
-        # the current 1 MiB production step so both reference and candidate paths
-        # exercise multiple input chunks.
+        # the historical 1 MiB step so both reference and production/candidate
+        # paths exercise multiple input chunks.
         return random.Random(0xA1800).randbytes(1_200_000)
 
     def test_reference_and_candidate_chunks_produce_identical_bytes(self) -> None:
@@ -56,13 +57,45 @@ class DecompressionChunkOracleTests(unittest.TestCase):
             production_output = tmp_path / "production.bin"
             candidate_output = tmp_path / "candidate.bin"
 
-            production_total = production_zlib_to_file(compressed, production_output)
+            production_total = probe.zlib_to_file(compressed, production_output)
             candidate_total = candidate_zlib_to_file(compressed, candidate_output)
 
             self.assertEqual(len(payload), production_total)
             self.assertEqual(production_total, candidate_total)
             self.assertEqual(reference, production_output.read_bytes())
             self.assertEqual(reference, candidate_output.read_bytes())
+
+    def test_production_uses_named_16_kib_input_chunk(self) -> None:
+        payload = self._payload()
+        compressed = zlib.compress(payload, level=6)
+        original_decompressobj = probe.zlib.decompressobj
+        observed_input_sizes: list[int] = []
+
+        class RecordingDecompressor:
+            def __init__(self):
+                self._inner = original_decompressobj()
+
+            def decompress(self, data):
+                observed_input_sizes.append(len(data))
+                return self._inner.decompress(data)
+
+            def flush(self):
+                return self._inner.flush()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "production.bin"
+            with mock.patch.object(
+                probe.zlib,
+                "decompressobj",
+                side_effect=lambda: RecordingDecompressor(),
+            ):
+                total = probe.zlib_to_file(compressed, output)
+
+            self.assertEqual(CANDIDATE_CHUNK_BYTES, probe.DECOMPRESSION_CHUNK_BYTES)
+            self.assertGreater(len(observed_input_sizes), 1)
+            self.assertLessEqual(max(observed_input_sizes), CANDIDATE_CHUNK_BYTES)
+            self.assertEqual(len(payload), total)
+            self.assertEqual(payload, output.read_bytes())
 
     def test_candidate_helper_rejects_non_positive_chunk_size(self) -> None:
         compressed = zlib.compress(b"payload")
