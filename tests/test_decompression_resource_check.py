@@ -18,6 +18,68 @@ class DecompressionResourceCheckTests(unittest.TestCase):
         text = """Rss:               1234 kB\nPss:                321 kB\nPrivate_Clean:        10 kB\n"""
         self.assertEqual(resource_check._parse_linux_smaps_rollup(text), 321 * 1024)
 
+    def test_run_batch_times_out_and_cleans_up_all_active_workers(self):
+        class Clock:
+            def __init__(self):
+                self.value = 0.0
+
+            def monotonic(self):
+                return self.value
+
+            def sleep(self, seconds):
+                self.value += seconds
+
+        class HungProcess:
+            next_pid = 1000
+
+            def __init__(self):
+                self.pid = HungProcess.next_pid
+                HungProcess.next_pid += 1
+                self.returncode = None
+                self.terminated = False
+                self.killed = False
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.terminated = True
+
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+
+            def communicate(self, timeout=None):
+                return "", ""
+
+        clock = Clock()
+        processes = []
+
+        def fake_popen(*_args, **_kwargs):
+            process = HungProcess()
+            processes.append(process)
+            return process
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "resource worker batch exceeded 0.05 second timeout",
+        ):
+            resource_check._run_batch(
+                [Path("one.a7s"), Path("two.a7s")],
+                resource_check.REFERENCE_CHUNK_BYTES,
+                2,
+                popen_factory=fake_popen,
+                sleep_fn=clock.sleep,
+                memory_reader=("pss", lambda _pid: 1),
+                monotonic_fn=clock.monotonic,
+                timeout_seconds=0.05,
+                termination_grace_seconds=0.02,
+            )
+
+        self.assertEqual(len(processes), 2)
+        self.assertTrue(all(process.terminated for process in processes))
+        self.assertTrue(all(process.killed for process in processes))
+
     def test_build_report_balances_chunk_order_for_workers_one_and_two(self):
         calls = []
 

@@ -24,6 +24,8 @@ SCHEMA_VERSION = 1
 REFERENCE_CHUNK_BYTES = 1 << 20
 WORKER_COUNTS = (1, 2)
 POLL_INTERVAL_SECONDS = 0.02
+BATCH_TIMEOUT_SECONDS = 600.0
+TERMINATION_GRACE_SECONDS = 2.0
 
 
 def _positive_even_int(value: str) -> int:
@@ -163,6 +165,46 @@ def _decode_worker_stdout(stdout: str) -> dict:
     return json.loads(lines[-1])
 
 
+def _terminate_processes(
+    processes: list[object],
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+    grace_seconds: float = TERMINATION_GRACE_SECONDS,
+) -> None:
+    running = [process for process in processes if process.poll() is None]
+    for process in running:
+        try:
+            process.terminate()
+        except (ProcessLookupError, OSError):
+            pass
+
+    deadline = monotonic_fn() + max(0.0, grace_seconds)
+    while running and monotonic_fn() < deadline:
+        running = [process for process in running if process.poll() is None]
+        if running:
+            remaining = max(0.0, deadline - monotonic_fn())
+            sleep_fn(min(POLL_INTERVAL_SECONDS, remaining))
+
+    for process in running:
+        try:
+            process.kill()
+        except (ProcessLookupError, OSError):
+            pass
+
+    for process in processes:
+        try:
+            process.communicate(timeout=max(0.1, grace_seconds))
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+            process.communicate()
+        except (ProcessLookupError, OSError):
+            pass
+
+
 def _run_batch(
     snapshots: list[Path],
     chunk_bytes: int,
@@ -171,11 +213,16 @@ def _run_batch(
     popen_factory: Callable = subprocess.Popen,
     sleep_fn: Callable[[float], None] = time.sleep,
     memory_reader: Optional[tuple[str, Callable[[int], int]]] = None,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+    timeout_seconds: float = BATCH_TIMEOUT_SECONDS,
+    termination_grace_seconds: float = TERMINATION_GRACE_SECONDS,
 ) -> dict:
     if workers <= 0:
         raise ValueError("workers must be positive")
     if not snapshots:
         raise ValueError("at least one snapshot is required")
+    if timeout_seconds <= 0:
+        raise ValueError("resource worker batch timeout must be positive")
 
     metric, read_memory = memory_reader if memory_reader is not None else _memory_reader()
     pending = list(enumerate(snapshots))
@@ -183,6 +230,7 @@ def _run_batch(
     results: list[Optional[dict]] = [None] * len(snapshots)
     peak_memory_bytes = 0
     started = time.perf_counter()
+    deadline = monotonic_fn() + timeout_seconds
 
     def start_available() -> None:
         while pending and len(active) < workers:
@@ -195,34 +243,48 @@ def _run_batch(
             )
             active[process] = index
 
-    start_available()
-    while active:
-        total_memory = 0
-        sampled = False
-        for process in list(active):
-            try:
-                total_memory += read_memory(process.pid)
-                sampled = True
-            except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
-                pass
-        if sampled:
-            peak_memory_bytes = max(peak_memory_bytes, total_memory)
-
-        completed = []
-        for process, index in list(active.items()):
-            if process.poll() is None:
-                continue
-            stdout, stderr = process.communicate()
-            if process.returncode != 0:
-                message = stderr.strip() or stdout.strip() or f"exit {process.returncode}"
-                raise RuntimeError(f"resource worker failed: {message}")
-            results[index] = _decode_worker_stdout(stdout)
-            completed.append(process)
-        for process in completed:
-            active.pop(process)
+    try:
         start_available()
-        if active:
-            sleep_fn(POLL_INTERVAL_SECONDS)
+        while active:
+            if monotonic_fn() >= deadline:
+                raise RuntimeError(
+                    f"resource worker batch exceeded {timeout_seconds:g} second timeout"
+                )
+
+            total_memory = 0
+            sampled = False
+            for process in list(active):
+                try:
+                    total_memory += read_memory(process.pid)
+                    sampled = True
+                except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+                    pass
+            if sampled:
+                peak_memory_bytes = max(peak_memory_bytes, total_memory)
+
+            completed = []
+            for process, index in list(active.items()):
+                if process.poll() is None:
+                    continue
+                stdout, stderr = process.communicate()
+                if process.returncode != 0:
+                    message = stderr.strip() or stdout.strip() or f"exit {process.returncode}"
+                    raise RuntimeError(f"resource worker failed: {message}")
+                results[index] = _decode_worker_stdout(stdout)
+                completed.append(process)
+            for process in completed:
+                active.pop(process)
+            start_available()
+            if active:
+                sleep_fn(POLL_INTERVAL_SECONDS)
+    except BaseException:
+        _terminate_processes(
+            list(active),
+            sleep_fn=sleep_fn,
+            monotonic_fn=monotonic_fn,
+            grace_seconds=termination_grace_seconds,
+        )
+        raise
 
     if peak_memory_bytes <= 0:
         raise RuntimeError("resource worker memory could not be sampled")
