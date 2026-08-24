@@ -6,7 +6,7 @@ The check requires at least two distinct operator-owned `.a7s` saves. Each sourc
 
 For each chunk size the harness runs the same snapshots with one and two concurrent parser worker subprocesses. Comparative repeats must be a positive even number. Reference/candidate batch order alternates A/B then B/A so each chunk size occupies the first and second position equally often.
 
-Each worker uses the normal `canonicalize_save()` path with only `probe.zlib_to_file` redirected to the selected stdlib streaming decompressor. The parent requires deterministic canonical digests within a configuration and exact digest equality between the 1 MiB and 16 KiB configurations.
+Each worker uses the normal `canonicalize_save()` path with only `probe.zlib_to_file` redirected to the selected stdlib streaming decompressor. The parent requires deterministic canonical digests within a configuration, exact digest equality between the 1 MiB and 16 KiB configurations, and the same canonical digests for worker counts 1 and 2.
 
 ## Memory metric
 

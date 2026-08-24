@@ -262,10 +262,12 @@ def _copy_verified_snapshots(saves: list[Path], root: Path) -> tuple[list[Path],
     return snapshots, identities
 
 
-def _record_run(target: dict, batch: dict) -> None:
+def _record_run(target: dict, batch: dict, expected_inputs: int) -> None:
+    digests = batch["canonical_sha256"]
+    if len(digests) != expected_inputs:
+        raise RuntimeError("resource worker result count does not match input count")
     target["elapsed_seconds"].append(batch["elapsed_seconds"])
     target["peak_memory_bytes"].append(batch["peak_memory_bytes"])
-    digests = batch["canonical_sha256"]
     if target["canonical_sha256"] is None:
         target["canonical_sha256"] = digests
     elif digests != target["canonical_sha256"]:
@@ -283,6 +285,7 @@ def build_report(
         snapshots, identities = _copy_verified_snapshots(saves, Path(td))
         results = []
         report_metric: Optional[str] = None
+        expected_canonical_sha256: Optional[list[str]] = None
         for workers in WORKER_COUNTS:
             reference = {
                 "chunk_bytes": REFERENCE_CHUNK_BYTES,
@@ -310,10 +313,16 @@ def build_report(
                         report_metric = metric
                     elif metric != report_metric:
                         raise RuntimeError("resource memory metric changed within one report")
-                    _record_run(by_chunk[chunk_bytes], batch)
+                    _record_run(by_chunk[chunk_bytes], batch, len(snapshots))
             if reference["canonical_sha256"] != candidate["canonical_sha256"]:
                 raise RuntimeError(
                     "canonical state differs between reference and candidate resource runs"
+                )
+            if expected_canonical_sha256 is None:
+                expected_canonical_sha256 = reference["canonical_sha256"]
+            elif reference["canonical_sha256"] != expected_canonical_sha256:
+                raise RuntimeError(
+                    "canonical state differs between worker-count configurations"
                 )
             results.append(
                 {

@@ -92,6 +92,48 @@ class DecompressionResourceCheckTests(unittest.TestCase):
                     run_batch_fn=mismatching_run_batch,
                 )
 
+    def test_build_report_rejects_worker_count_digest_mismatch(self):
+        def worker_count_mismatch(snapshots, chunk_bytes, workers):
+            return {
+                "canonical_sha256": [f"worker-{workers}" for _ in snapshots],
+                "elapsed_seconds": 1.0,
+                "peak_memory_bytes": 1024,
+                "memory_metric": "pss",
+            }
+
+        with tempfile.TemporaryDirectory() as td:
+            saves = self._source_pair(Path(td))
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "canonical state differs between worker-count configurations",
+            ):
+                resource_check.build_report(
+                    saves,
+                    repeats=2,
+                    run_batch_fn=worker_count_mismatch,
+                )
+
+    def test_build_report_rejects_missing_worker_result(self):
+        def missing_result(snapshots, chunk_bytes, workers):
+            return {
+                "canonical_sha256": ["only-one-result"],
+                "elapsed_seconds": 1.0,
+                "peak_memory_bytes": 1024,
+                "memory_metric": "pss",
+            }
+
+        with tempfile.TemporaryDirectory() as td:
+            saves = self._source_pair(Path(td))
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "resource worker result count does not match input count",
+            ):
+                resource_check.build_report(
+                    saves,
+                    repeats=2,
+                    run_batch_fn=missing_result,
+                )
+
     def test_build_report_requires_two_distinct_save_contents(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
