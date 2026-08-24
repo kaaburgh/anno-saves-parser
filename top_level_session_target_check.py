@@ -17,11 +17,13 @@ from typing import Callable
 from anno_save_probe import (
     _required_rda_member,
     bb_meta,
-    extract_sessions,
     rda_entries,
     zlib_to_file,
 )
-from top_level_session_scan import scan_top_level_sessions_mmap
+from top_level_session_scan import (
+    scan_top_level_sessions_buffered_reference,
+    scan_top_level_sessions_mmap,
+)
 
 
 REPORT_SCHEMA = "anno-saves-parser/top-level-session-target-check"
@@ -89,7 +91,7 @@ def _timed_scan(scan: Callable[[], list[dict]]) -> tuple[list[dict], float]:
 
 
 def compare_data_bin(data_bin: Path, repeats: int = DEFAULT_REPEATS) -> dict:
-    """Compare current buffered discovery with the mmap candidate on one FileDB."""
+    """Compare the retained buffered reference with the mmap scanner on one FileDB."""
     _validate_repeats(repeats)
     tags_off, _, tags, attrs = bb_meta(data_bin)
 
@@ -99,7 +101,7 @@ def compare_data_bin(data_bin: Path, repeats: int = DEFAULT_REPEATS) -> dict:
     candidate_expected: list[dict] | None = None
 
     def reference() -> list[dict]:
-        return extract_sessions(data_bin)
+        return scan_top_level_sessions_buffered_reference(data_bin, tags_off, tags, attrs)
 
     def candidate() -> list[dict]:
         return scan_top_level_sessions_mmap(data_bin, tags_off, tags, attrs)
@@ -220,8 +222,8 @@ def _write_report_atomic(report: dict, output: Path, source_saves: list[Path]) -
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare buffered and mmap top-level GameSession discovery on "
-            "operator-owned Anno 1800 saves."
+            "Compare retained buffered-reference and mmap top-level GameSession "
+            "discovery on operator-owned Anno 1800 saves."
         )
     )
     parser.add_argument("saves", nargs="+", type=Path, help="At least two distinct private .a7s saves")
