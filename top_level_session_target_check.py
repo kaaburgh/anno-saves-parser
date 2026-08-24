@@ -139,21 +139,32 @@ def compare_data_bin(data_bin: Path, repeats: int = DEFAULT_REPEATS) -> dict:
 
 
 def build_report(saves: list[Path], repeats: int = DEFAULT_REPEATS) -> dict:
-    """Run the bounded comparison on operator-owned saves without returning paths."""
+    """Run the bounded comparison on distinct operator-owned saves without returning paths."""
     _validate_repeats(repeats)
     if len(saves) < 2:
         raise ValueError("target validation requires at least two saves")
 
-    results = []
+    resolved_saves: list[Path] = []
     for save in saves:
         resolved = save.resolve()
         if not resolved.is_file():
             raise FileNotFoundError(f"save does not exist: {save}")
         if resolved.suffix.lower() != ".a7s":
             raise ValueError(f"not an .a7s save: {save}")
+        resolved_saves.append(resolved)
+
+    if len(set(resolved_saves)) != len(resolved_saves):
+        raise ValueError("target validation requires distinct save paths")
+
+    results = []
+    seen_source_sha256: set[str] = set()
+    for resolved in resolved_saves:
         with tempfile.TemporaryDirectory(prefix="anno-session-target-check-") as temp:
             work_dir = Path(temp)
             snapshot, source_sha256, source_size = _copy_verified_snapshot(resolved, work_dir)
+            if source_sha256 in seen_source_sha256:
+                raise ValueError("target validation requires distinct save contents")
+            seen_source_sha256.add(source_sha256)
             data_bin = _prepare_data_bin(snapshot, work_dir)
             comparison = compare_data_bin(data_bin, repeats)
         results.append(
@@ -213,7 +224,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "operator-owned Anno 1800 saves."
         )
     )
-    parser.add_argument("saves", nargs="+", type=Path, help="At least two private .a7s saves")
+    parser.add_argument("saves", nargs="+", type=Path, help="At least two distinct private .a7s saves")
     parser.add_argument(
         "--repeats",
         type=int,
