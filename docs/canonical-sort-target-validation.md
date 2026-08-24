@@ -1,6 +1,6 @@
 # Canonical session sort target validation
 
-Issue #36 already has a committed synthetic differential oracle and an isolated lazy-session-sort helper. This operator-side harness packages the remaining private-save equality and ordering-timing evidence without committing proprietary save data or changing production behavior.
+Issue #36 has a committed synthetic differential oracle, an isolated lazy-session-sort helper, and production wiring through `build_canonical_state()`. This operator-side harness packages the remaining private-save equality and ordering-timing evidence without committing proprietary save data.
 
 ## Run
 
@@ -39,8 +39,14 @@ The JSON report records:
 - session count and deterministic canonical-state SHA-256;
 - per-repeat eager-reference and lazy-candidate ordering times.
 
-A successful report establishes equality and ordering-stage timing only for the exact distinct source hashes and environment recorded. It does not establish cross-machine or Windows performance portability, and it does not by itself make the lazy helper the production path.
+A successful report establishes equality and ordering-stage timing only for the exact distinct source hashes and environment recorded. It does not establish cross-machine or Windows performance portability. The lazy helper is already the production path; the harness exists to validate that production optimization on private target evidence, not to gate whether the helper is wired.
 
 ## Remaining #36 boundary
 
-After acceptable target evidence, issue #36 still requires wiring `sort_canonical_sessions()` into production `build_canonical_state()`, preserving the committed differential oracle, running cross-platform CI on that exact integration head, and recording representative post-integration timing before the issue can be treated as complete.
+Production lazy-sort integration and its cross-platform synthetic CI have already landed via PR #105. Issue #36 remains open only for the operator-owned target evidence:
+
+- validate canonical-state equality on at least two distinct consecutive private saves using this harness, without committing private state;
+- record representative post-integration canonical-ordering timing, with CPython as the default-runtime measurement and PyPy as informative evidence where available;
+- preserve the exact full-state deterministic JSON tie-breaker for genuine primary-key collisions and treat the existing synthetic oracle as capability/regression evidence rather than a substitute for the private run.
+
+Do not close #36 merely because this harness exists or because historical pre-integration measurements were favorable; completion requires the post-integration target run and accepted sanitized evidence.
