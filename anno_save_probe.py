@@ -40,6 +40,7 @@ RDA_MAGIC = b"Resource File V2.2"
 BBDOM_V3_MAGIC = bytes.fromhex("08000000fdffffff")
 PAD_BLOCK = 8
 AREA_RE = re.compile(r"^AreaManager_(\d+)$")
+DECOMPRESSION_CHUNK_BYTES = 16 << 10
 PARALLEL_RAM_ESTIMATE_BYTES = 384 * 1024 * 1024
 PARALLEL_TEMP_ESTIMATE_BYTES = 320 * 1024 * 1024
 WINDOWS_PROCESS_WORKER_LIMIT = 61
@@ -428,11 +429,11 @@ def zlib_to_file(compressed: bytes, dest: Path, progress: Optional[Progress] = N
     with dest.open("wb") as out:
         mv = memoryview(compressed)
         size = len(mv)
-        for i in range(0, size, 1 << 20):
-            chunk = dec.decompress(mv[i:i+(1 << 20)])
+        for i in range(0, size, DECOMPRESSION_CHUNK_BYTES):
+            chunk = dec.decompress(mv[i:i+DECOMPRESSION_CHUNK_BYTES])
             out.write(chunk); total += len(chunk)
             if progress is not None:
-                done = min(i + (1 << 20), size)
+                done = min(i + DECOMPRESSION_CHUNK_BYTES, size)
                 progress.maybe(
                     f"    [data] decompressing {100.0 * done / max(size, 1):5.1f}% "
                     f"({done / 1048576:.1f}/{size / 1048576:.1f} MiB input; "
