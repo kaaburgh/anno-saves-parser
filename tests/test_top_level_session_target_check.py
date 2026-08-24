@@ -23,7 +23,7 @@ class TopLevelSessionTargetCheckTests(unittest.TestCase):
             return [dict(item) for item in descriptors]
 
         with mock.patch.object(target_check, "bb_meta", return_value=(64, 80, {}, {})), mock.patch.object(
-            target_check, "extract_sessions", side_effect=reference
+            target_check, "scan_top_level_sessions_buffered_reference", side_effect=reference
         ), mock.patch.object(
             target_check, "scan_top_level_sessions_mmap", side_effect=candidate
         ):
@@ -45,7 +45,7 @@ class TopLevelSessionTargetCheckTests(unittest.TestCase):
     def test_compare_fails_closed_on_descriptor_mismatch(self) -> None:
         with mock.patch.object(target_check, "bb_meta", return_value=(64, 80, {}, {})), mock.patch.object(
             target_check,
-            "extract_sessions",
+            "scan_top_level_sessions_buffered_reference",
             return_value=[{"index": 0, "binary_offset": 16, "binary_size": 8}],
         ), mock.patch.object(
             target_check,

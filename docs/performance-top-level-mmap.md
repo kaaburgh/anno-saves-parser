@@ -19,17 +19,19 @@ The prototype returned an exactly equal ordered list of session descriptors, inc
 
 The evidence supports a bounded pure-Python implementation candidate: move top-level session discovery to the same read-only mmap/offset traversal style already used for bounded GameSession blobs. It does not justify native code, canonical-schema changes, decompression changes, worker-policy changes, or public CLI changes.
 
-## Committed candidate seam
+## Committed scanner seams
 
-`top_level_session_scan.py` now contains the read-only mmap/offset traversal as an internal candidate helper. It intentionally receives the already-decoded FileDB metadata (`tags_off`, tag dictionary, and attribute dictionary) rather than implementing a second metadata parser.
+`top_level_session_scan.py` contains the read-only mmap/offset traversal as the production candidate. It intentionally receives the already-decoded FileDB metadata (`tags_off`, tag dictionary, and attribute dictionary) rather than implementing a second metadata parser.
+
+The module also retains the historical buffered traversal as `scan_top_level_sessions_buffered_reference()`. That function is evidence/test-only: it exists so differential and private-target validation remain independent after production `extract_sessions()` eventually switches to mmap. It is not a second public parser mode.
 
 The synthetic differential oracle compares three paths on the same reduced FileDB inputs:
 
 - the retained buffered reference scanner;
 - current production `extract_sessions()`;
-- the mmap candidate helper.
+- the mmap scanner.
 
-The oracle requires exact descriptor equality on the two-session fixture and matching fail-closed errors for negative attribute sizes and truncated payloads. This establishes the candidate traversal contract in CI without yet changing the production call path.
+The oracle requires exact descriptor equality on the two-session fixture and matching fail-closed errors for negative attribute sizes and truncated payloads. The operator target harness compares the retained buffered reference directly with the mmap scanner, rather than treating production `extract_sessions()` as its reference; this preserves the evidence oracle across the future production switch.
 
 ## Remaining acceptance boundary
 
@@ -41,4 +43,4 @@ Issue #35 remains open. Before it can be considered complete, the production sca
 - validation on at least two consecutive private saves when available;
 - representative before/after timing recorded after the production change.
 
-The committed differential oracle and mmap helper are preparatory repository evidence, not proof that the production scanner has changed. PyPy remains informative benchmark evidence only; it is not promoted to a required CI runtime by this investigation.
+The committed differential oracle, retained buffered reference, mmap helper, and target harness are preparatory repository evidence, not proof that the production scanner has changed. PyPy remains informative benchmark evidence only; it is not promoted to a required CI runtime by this investigation.
