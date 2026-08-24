@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -38,6 +39,22 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _file_identity(path: Path) -> tuple[str, int]:
+    return _sha256_file(path), path.stat().st_size
+
+
+def _copy_verified_snapshot(source: Path, work_dir: Path) -> tuple[Path, str, int]:
+    """Copy one source save and prove its bytes stayed stable across the snapshot."""
+    before = _file_identity(source)
+    snapshot = work_dir / "source.a7s"
+    shutil.copyfile(source, snapshot)
+    snapshot_identity = _file_identity(snapshot)
+    after = _file_identity(source)
+    if before != snapshot_identity or after != snapshot_identity:
+        raise ValueError("source save changed while creating verified snapshot")
+    return snapshot, snapshot_identity[0], snapshot_identity[1]
 
 
 def _canonical_bytes(state: dict) -> bytes:
@@ -87,45 +104,50 @@ def compare_save(
     decompressor_fn: Callable = stream_zlib_to_file,
 ) -> dict:
     _validate_repeats(repeats)
-    save = save.resolve()
-    chunk_sizes = [REFERENCE_CHUNK_BYTES, DEFAULT_DECOMPRESSION_CHUNK_BYTES]
-    results = {
-        chunk_bytes: {
-            "chunk_bytes": chunk_bytes,
-            "canonical_sha256": None,
-            "elapsed_seconds": [],
+    source = save.resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"save does not exist: {save}")
+
+    with tempfile.TemporaryDirectory(prefix="anno-decompression-source-") as td:
+        snapshot, source_sha256, source_size = _copy_verified_snapshot(source, Path(td))
+        chunk_sizes = [REFERENCE_CHUNK_BYTES, DEFAULT_DECOMPRESSION_CHUNK_BYTES]
+        results = {
+            chunk_bytes: {
+                "chunk_bytes": chunk_bytes,
+                "canonical_sha256": None,
+                "elapsed_seconds": [],
+            }
+            for chunk_bytes in chunk_sizes
         }
-        for chunk_bytes in chunk_sizes
-    }
 
-    for repeat_index in range(repeats):
-        ordered_chunks = chunk_sizes if repeat_index % 2 == 0 else list(reversed(chunk_sizes))
-        for chunk_bytes in ordered_chunks:
-            digest, elapsed_seconds = _run_once(
-                save,
-                chunk_bytes,
-                canonicalize_fn=canonicalize_fn,
-                decompressor_fn=decompressor_fn,
-            )
-            result = results[chunk_bytes]
-            result["elapsed_seconds"].append(elapsed_seconds)
-            if result["canonical_sha256"] is None:
-                result["canonical_sha256"] = digest
-            elif digest != result["canonical_sha256"]:
-                raise RuntimeError(
-                    "canonical state changed between repeated runs for one chunk size"
+        for repeat_index in range(repeats):
+            ordered_chunks = chunk_sizes if repeat_index % 2 == 0 else list(reversed(chunk_sizes))
+            for chunk_bytes in ordered_chunks:
+                digest, elapsed_seconds = _run_once(
+                    snapshot,
+                    chunk_bytes,
+                    canonicalize_fn=canonicalize_fn,
+                    decompressor_fn=decompressor_fn,
                 )
+                result = results[chunk_bytes]
+                result["elapsed_seconds"].append(elapsed_seconds)
+                if result["canonical_sha256"] is None:
+                    result["canonical_sha256"] = digest
+                elif digest != result["canonical_sha256"]:
+                    raise RuntimeError(
+                        "canonical state changed between repeated runs for one chunk size"
+                    )
 
-    runs = [results[REFERENCE_CHUNK_BYTES], results[DEFAULT_DECOMPRESSION_CHUNK_BYTES]]
-    if runs[0]["canonical_sha256"] != runs[1]["canonical_sha256"]:
-        raise RuntimeError(
-            "canonical state differs between reference and candidate decompression chunks"
-        )
-    return {
-        "source_sha256": _sha256_file(save),
-        "source_size": save.stat().st_size,
-        "runs": runs,
-    }
+        runs = [results[REFERENCE_CHUNK_BYTES], results[DEFAULT_DECOMPRESSION_CHUNK_BYTES]]
+        if runs[0]["canonical_sha256"] != runs[1]["canonical_sha256"]:
+            raise RuntimeError(
+                "canonical state differs between reference and candidate decompression chunks"
+            )
+        return {
+            "source_sha256": source_sha256,
+            "source_size": source_size,
+            "runs": runs,
+        }
 
 
 def build_report(saves: list[Path], repeats: int) -> dict:

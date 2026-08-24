@@ -1,8 +1,10 @@
 import json
+import shutil
 import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
 import anno_save_probe as probe
 import decompression_target_check as target_check
@@ -10,17 +12,21 @@ from decompression import zlib_to_file as stream_zlib_to_file
 
 
 class DecompressionTargetCheckTests(unittest.TestCase):
-    def test_compare_save_binds_input_and_requires_equal_canonical_state(self):
+    def test_compare_save_binds_snapshot_and_requires_equal_canonical_state(self):
         payload = (b"decompression-target-check-" * 10000) + bytes(range(256)) * 64
         compressed = zlib.compress(payload)
         observed_chunks = []
+        observed_saves = []
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             save = root / "private-name-is-not-emitted.a7s"
             save.write_bytes(b"synthetic-source-identity")
 
-            def canonicalize_fn(_save, work_dir, _progress):
+            def canonicalize_fn(snapshot, work_dir, _progress):
+                observed_saves.append(snapshot.resolve())
+                self.assertNotEqual(snapshot.resolve(), save.resolve())
+                self.assertEqual(snapshot.read_bytes(), b"synthetic-source-identity")
                 dest = work_dir / "data.bin"
                 probe.zlib_to_file(compressed, dest, None)
                 decoded = dest.read_bytes()
@@ -48,6 +54,8 @@ class DecompressionTargetCheckTests(unittest.TestCase):
             )
 
         self.assertEqual(len(result["runs"]), 2)
+        self.assertEqual(len(observed_saves), 4)
+        self.assertEqual(len(set(observed_saves)), 1)
         self.assertEqual(
             [run["chunk_bytes"] for run in result["runs"]],
             [target_check.REFERENCE_CHUNK_BYTES, target_check.DEFAULT_DECOMPRESSION_CHUNK_BYTES],
@@ -67,6 +75,26 @@ class DecompressionTargetCheckTests(unittest.TestCase):
         )
         self.assertEqual([len(run["elapsed_seconds"]) for run in result["runs"]], [2, 2])
         self.assertNotIn("private-name-is-not-emitted", json.dumps(result))
+
+    def test_verified_snapshot_rejects_source_mutation_during_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            save = root / "source.a7s"
+            save.write_bytes(b"before")
+            work_dir = root / "work"
+            work_dir.mkdir()
+            real_copyfile = shutil.copyfile
+
+            def mutating_copy(source, destination):
+                result = real_copyfile(source, destination)
+                Path(source).write_bytes(b"after")
+                return result
+
+            with mock.patch.object(target_check.shutil, "copyfile", side_effect=mutating_copy):
+                with self.assertRaisesRegex(
+                    ValueError, "source save changed while creating verified snapshot"
+                ):
+                    target_check._copy_verified_snapshot(save, work_dir)
 
     def test_compare_save_requires_positive_even_repeats(self):
         with tempfile.TemporaryDirectory() as td:
