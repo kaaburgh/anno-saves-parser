@@ -227,6 +227,10 @@ Skip already processed saves safely using internal metadata/content identity and
 
 Issue #17 (opt-in in-memory expanded FileDB parsing) was closed `not_planned` after bounded parallel parsing landed. It is not a current roadmap dependency. Reopen or replace it only if measured evaluation/operational evidence shows temp-I/O or parser throughput is blocking the product sequence above.
 
+Issues #34, #35, and #36 have completed their cloud-side production implementations but remain open for operator-owned post-integration evidence rather than additional cloud implementation. #34 still needs representative private-save CPython workers=1/2 memory/timing evidence, informative PyPy measurements where available, and conservative Windows validation for the shipped 16 KiB decompression input step. #35 still needs the independent retained-buffered-vs-mmap harness run on at least two distinct consecutive private saves, representative post-integration timing, and conservative Windows evidence for the shipped mmap top-level scanner. #36 still needs the two-distinct-save canonical-equality and ordering-timing run for the shipped lazy canonical-session sorter. Historical measurements and prepared harnesses do not satisfy those target-evidence gates.
+
+Issue #37 (optional native FileDB scanner) remains deferred. Completion of the cloud implementation portions of #34/#35/#36 does not by itself promote native acceleration: do not start it while the product sequence is blocked on evidence rather than parser throughput. Reconsider #37 only if accepted post-integration measurements and actual operational/product use show that remaining parser throughput is materially blocking the roadmap.
+
 ## Planning principle
 
 The common roadmap is a feedback graph, not a one-way parser-completeness ladder. After `ASP-P5-3`, new extraction or semantic work should normally be justified by observed failure classes and expected coaching value, then re-evaluated through `ASP-P7-1`. Existing IDs are retained where their bounded outcome remains valid even when priority or dependency changed.
