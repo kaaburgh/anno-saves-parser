@@ -41,7 +41,7 @@ Independent audit #40 found that the container/ingest path had no committed end-
 
 Maintain regression tests, agent guidance, architecture notes and cross-platform GitHub Actions around the parser baseline.
 
-Issue #67 closes AUDIT-010 by keeping the source policy, generated agent contract, README, and cross-platform CI compile step aligned on every current production Python module (`anno_save_probe.py` and `guid_mapping.py`) before running the full unit suite. Issue #98 restores that invariant after `canonical_sort.py` became a production module, keeping the same validation surfaces aligned on all three production modules.
+Issue #67 closes AUDIT-010 by keeping the source policy, generated agent contract, README, and cross-platform CI compile step aligned on every current production Python module (`anno_save_probe.py` and `guid_mapping.py`) before running the full unit suite. Issue #98 restores that invariant after `canonical_sort.py` became a production module. PR #113 extends the same invariant when `top_level_session_scan.py` becomes a production import, keeping all four production modules explicit across the same validation surfaces.
 
 ### ASP-P1-1 — Define canonical schema v1
 

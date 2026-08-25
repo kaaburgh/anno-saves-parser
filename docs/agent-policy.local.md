@@ -16,7 +16,7 @@
 Before publishing a change, run:
 
 ```bash
-python -m compileall -q anno_save_probe.py canonical_sort.py guid_mapping.py tests
+python -m compileall -q anno_save_probe.py canonical_sort.py guid_mapping.py top_level_session_scan.py tests
 python -m unittest discover -s tests -v
 ```
 

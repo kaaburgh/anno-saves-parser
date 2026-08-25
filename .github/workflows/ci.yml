@@ -37,7 +37,7 @@ jobs:
         run: python -VV
 
       - name: Compile
-        run: python -m compileall -q anno_save_probe.py canonical_sort.py guid_mapping.py tests
+        run: python -m compileall -q anno_save_probe.py canonical_sort.py guid_mapping.py top_level_session_scan.py tests
 
       - name: Unit tests
         run: python -m unittest discover -s tests -v
